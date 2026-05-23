@@ -221,8 +221,24 @@ references/
 prompts/
 
 # Large data files (removed from git history)
-holidays/*.csv
-holidays/*.json
-audit/data/*.csv
-audit/data/*.parquet
+*.csv
+*.json
+*.parquet
 *.pdf
+*.xlsx
+*.xls
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.onnx
+*.npz
+*.npy
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.7z
+*.rar
