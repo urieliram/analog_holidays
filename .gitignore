@@ -219,3 +219,10 @@ __marimo__/
 
 references/
 prompts/
+
+# Large data files (removed from git history)
+holidays/*.csv
+holidays/*.json
+audit/data/*.csv
+audit/data/*.parquet
+*.pdf
