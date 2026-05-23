@@ -1,16 +1,19 @@
-"""
-analog_holidays/audit
-==================
-Interactive human-in-the-loop validation tool for holiday and
-special-day classification in SEN demand time series.
+"""Holiday audit tools for the analog_holidays repository.
+
+The `audit/` package contains the Streamlit review app, cache builders,
+state-management helpers, and exported audit artifacts. The companion
+notebook `N_holiday_features_manager.ipynb` lives at the repository root.
 
 Usage
 -----
-1. Precompute cache (run once):
-       python -m analog_holidays.audit.build_cache
+1. From the repository root, precompute the cache:
+    python audit/build_cache.py
 
-2. Launch Streamlit app:
-       streamlit run analog_holidays/audit/app.py
+2. Launch the Streamlit app:
+    streamlit run audit/app.py
+
+3. For the notebook-driven workflow, open:
+    N_holiday_features_manager.ipynb
 """
 from .data_loader import (
     HOUR_COLS,

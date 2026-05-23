@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 _APP_DIR = Path(__file__).resolve().parent
 _PROJ_ROOT = _APP_DIR.parents[1]
@@ -36,7 +37,7 @@ from analog_holidays.audit.state_manager import (  # noqa: E402
     save_labels,
     update_label,
 )
-from analog_holidays.dataset_config import ACTIVE_CONFIG, format_region_label  # noqa: E402
+from analog_holidays.shared.dataset_config import ACTIVE_CONFIG, format_region_label  # noqa: E402
 
 st.set_page_config(
     page_title="Holiday Audit",
@@ -330,15 +331,19 @@ with st.sidebar:
 <script>
 (function () {{
   function findInput() {{
-    var scopes = [];
-    var sb = document.querySelector('[data-testid="stSidebar"]');
-    if (sb) scopes.push(sb);
-    scopes.push(document);
-    for (var s = 0; s < scopes.length; s++) {{
-      var inputs = scopes[s].querySelectorAll('input');
-      for (var i = 0; i < inputs.length; i++) {{
-        var lbl = (inputs[i].getAttribute('aria-label') || '').toLowerCase();
-        if (lbl.indexOf('cal_jump') >= 0) return inputs[i];
+        var docs = [document];
+        try {{ if (window.parent !== window) docs.push(window.parent.document); }} catch (e) {{}}
+        for (var d = 0; d < docs.length; d++) {{
+            var scopes = [];
+            var sb = docs[d].querySelector('[data-testid="stSidebar"]');
+            if (sb) scopes.push(sb);
+            scopes.push(docs[d]);
+            for (var s = 0; s < scopes.length; s++) {{
+                var inputs = scopes[s].querySelectorAll('input');
+                for (var i = 0; i < inputs.length; i++) {{
+                    var lbl = (inputs[i].getAttribute('aria-label') || '').toLowerCase();
+                    if (lbl.indexOf('cal_jump') >= 0) return inputs[i];
+                }}
       }}
     }}
     return null;
@@ -347,14 +352,15 @@ with st.sidebar:
   function triggerDate(ds) {{
     var inp = findInput();
     if (!inp) {{ console.warn('[pml-cal] input _cal_jump not found'); return; }}
+        var ownerWindow = inp.ownerDocument.defaultView || window;
     var tracker = inp._valueTracker;
     if (tracker) tracker.setValue('');
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        var setter = Object.getOwnPropertyDescriptor(ownerWindow.HTMLInputElement.prototype, 'value').set;
     setter.call(inp, ds);
-    inp.dispatchEvent(new Event('input',  {{bubbles: true, cancelable: true}}));
+        inp.dispatchEvent(new ownerWindow.Event('input',  {{bubbles: true, cancelable: true}}));
     inp.focus();
     ['keydown','keypress','keyup'].forEach(function(t) {{
-      inp.dispatchEvent(new KeyboardEvent(t, {{
+            inp.dispatchEvent(new ownerWindow.KeyboardEvent(t, {{
         key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
         bubbles: true, cancelable: true
       }}));
@@ -379,7 +385,7 @@ with st.sidebar:
 }})();
 </script>"""
 
-    st.html(_cal_html, unsafe_allow_javascript=True)
+    components.html(_cal_html, height=190, scrolling=False)
 
     st.divider()
 
@@ -550,50 +556,60 @@ with center_col:
     )
     st.plotly_chart(fig_main, use_container_width=True, key="main_chart")
 
-st.html("""
-<style>
-#pml-sidebar-toggle {
-    position: fixed;
-    top: 6px;
-    left: 6px;
-    z-index: 99999;
-    background: #6A1B9A;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    width: 32px;
-    height: 32px;
-    font-size: 18px;
-    cursor: pointer;
-    line-height: 32px;
-    text-align: center;
-    padding: 0;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-#pml-sidebar-toggle:hover { background: #4a148c; }
-</style>
-<button id="pml-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+components.html("""
 <script>
 (function() {
-    document.getElementById('pml-sidebar-toggle').addEventListener('click', function() {
-        var docs = [document];
-        try { if (window.parent !== window) docs.push(window.parent.document); } catch(e) {}
-        for (var di = 0; di < docs.length; di++) {
-            var d = docs[di];
-            var btn = d.querySelector('button[data-testid="stSidebarCollapseButton"]')
-                   || d.querySelector('button[data-testid="stSidebarExpandButton"]')
-                   || d.querySelector('[data-testid="stSidebar"] button');
+    var doc = document;
+    try {
+        if (window.parent !== window) {
+            doc = window.parent.document;
+        }
+    } catch (e) {}
+
+    if (!doc.getElementById('pml-sidebar-toggle')) {
+        var style = doc.createElement('style');
+        style.textContent = [
+            '#pml-sidebar-toggle {',
+            '  position: fixed;',
+            '  top: 6px;',
+            '  left: 6px;',
+            '  z-index: 99999;',
+            '  background: #6A1B9A;',
+            '  color: white;',
+            '  border: none;',
+            '  border-radius: 6px;',
+            '  width: 32px;',
+            '  height: 32px;',
+            '  font-size: 18px;',
+            '  cursor: pointer;',
+            '  line-height: 32px;',
+            '  text-align: center;',
+            '  padding: 0;',
+            '  box-shadow: 0 2px 6px rgba(0,0,0,0.3);',
+            '}',
+            '#pml-sidebar-toggle:hover { background: #4a148c; }'
+        ].join('\n');
+        doc.head.appendChild(style);
+
+        var toggle = doc.createElement('button');
+        toggle.id = 'pml-sidebar-toggle';
+        toggle.title = 'Toggle sidebar';
+        toggle.innerHTML = '&#9776;';
+        toggle.addEventListener('click', function() {
+            var btn = doc.querySelector('button[data-testid="stSidebarCollapseButton"]')
+                   || doc.querySelector('button[data-testid="stSidebarExpandButton"]')
+                   || doc.querySelector('[data-testid="stSidebar"] button');
             if (btn) { btn.click(); return; }
-            var sb = d.querySelector('section[data-testid="stSidebar"]');
+            var sb = doc.querySelector('section[data-testid="stSidebar"]');
             if (sb) {
                 sb.style.display = sb.style.display === 'none' ? '' : 'none';
-                return;
             }
-        }
-    });
+        });
+        doc.body.appendChild(toggle);
+    }
 
     function applyBtnColors() {
-        document.querySelectorAll('button').forEach(function(btn) {
+        doc.querySelectorAll('button').forEach(function(btn) {
             var txt = btn.innerText || '';
             if (txt.indexOf('Holiday') > -1) {
                 btn.style.setProperty('background-color','#2ca02c','important');
@@ -610,13 +626,14 @@ st.html("""
             }
         });
     }
+
     applyBtnColors();
     setTimeout(applyBtnColors, 300);
     var obs = new MutationObserver(applyBtnColors);
-    obs.observe(document.body, {childList:true, subtree:true});
+    obs.observe(doc.body, {childList:true, subtree:true});
 })();
 </script>
-""", unsafe_allow_javascript=True)
+""", height=0, scrolling=False)
 
 with nav_l:
     st.markdown("<div style='height:160px'></div>", unsafe_allow_html=True)
@@ -700,13 +717,14 @@ def _color_feat(val):
 _feat_style = _feat_df.style.map(_color_feat).set_table_styles(
     [{"selector": "th, td", "props": [("font-size", "11px"), ("padding", "1px 5px"), ("text-align", "center")]}]
 )
-st.dataframe(_feat_style, use_container_width=True, height="content")
+_feat_height = 35 * (len(_feat_df.index) + 1) + 3
+st.dataframe(_feat_style, use_container_width=True, height=_feat_height)
 
 st.divider()
 left_f, right_f = st.columns([3, 1])
 with left_f:
     st.caption(
-        "Precomputed by `identify_HOLIDAYS.py` · Metric: PEARSON · "
+        "Precomputed by `shared/identify_HOLIDAYS.py` · Metric: PEARSON · "
         "Outlier threshold: p97 · Exclude year: 2022"
     )
 with right_f:

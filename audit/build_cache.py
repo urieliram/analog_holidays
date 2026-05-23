@@ -9,10 +9,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJ_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJ_ROOT / "analog_holidays"))
+_MODULE_DIR = Path(__file__).resolve().parent
+PROJ_ROOT = _MODULE_DIR.parents[1]
 
-from identify_HOLIDAYS import (  # noqa: E402
+if str(PROJ_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJ_ROOT))
+
+from analog_holidays.shared.identify_holidays import (
     build_wide_df,
     cluster_atypical_profiles,
     compare_outliers_holidays,
@@ -23,7 +26,7 @@ from identify_HOLIDAYS import (  # noqa: E402
     load_holidays_catalog,
     load_results_data,
 )
-from dataset_config import ACTIVE_CONFIG, list_dataset_regions  # noqa: E402
+from analog_holidays.shared.dataset_config import ACTIVE_CONFIG, list_dataset_regions
 
 DEMAND_PATH = ACTIVE_CONFIG.demand_path
 HOLIDAYS_PATH = ACTIVE_CONFIG.audit_holidays_path
@@ -334,5 +337,10 @@ def main(force_rebuild: bool = False) -> None:
         print(f"   {lbl:>15s}: {cnt:,} days")
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Run the audit cache build from the script entrypoint."""
     main()
+
+
+if __name__ == "__main__":
+    cli()

@@ -2,14 +2,14 @@
 export_to_json.py
 =================
 Convert audit_cache.parquet + audit_labels.parquet into static JSON
-for consumption by the React SPA in holidays/web/.
+for consumption by the React SPA in web/.
 
-Usage (from the project root):
-    python holidays/web/export_to_json.py
+Usage (from the repository root):
+    python web/export_to_json.py
 
 Output:
-    holidays/web/public/data/audit_data.json
-    holidays/web/public/data/audit_labels.json
+    web/public/data/audit_data.json
+    web/public/data/audit_labels.json
 """
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pandas as pd
 
-# Paths
-_ROOT      = Path(__file__).resolve().parents[2]
-_DATA_DIR  = _ROOT / "holidays" / "audit" / "data"
-_OUT_DIR   = _ROOT / "holidays" / "web" / "public" / "data"
+# Paths relative to the repository root
+_ROOT      = Path(__file__).resolve().parents[1]
+_DATA_DIR  = _ROOT / "audit" / "data"
+_OUT_DIR   = _ROOT / "web" / "public" / "data"
 
 CACHE_PATH  = _DATA_DIR / "audit_cache.parquet"
 LABELS_PATH = _DATA_DIR / "audit_labels.parquet"
@@ -52,7 +52,7 @@ def export():
     if not CACHE_PATH.exists():
         raise FileNotFoundError(
             f"Cache not found: {CACHE_PATH}\n"
-            "Run: python -m analog_holidays.audit.build_cache"
+            "Run: python audit/build_cache.py"
         )
     df = pd.read_parquet(CACHE_PATH)
     df["date"] = pd.to_datetime(df["date"])
@@ -104,5 +104,10 @@ def export():
     print(f"[OK] audit_labels.json  →  {len(labels_out):,} rows  →  {lbl_path}")
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Run the JSON export from the script entrypoint."""
     export()
+
+
+if __name__ == "__main__":
+    cli()

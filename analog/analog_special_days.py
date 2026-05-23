@@ -15,7 +15,7 @@ exactly as in `analog.py`.
 
 Standalone usage
 ----------------
-    from analog_special_days import AnalogSpecialDays
+    from analog_holidays.analog import AnalogSpecialDays
 
     model = AnalogSpecialDays(season_length=24, typereg='PCR')
     model.fit(y=series_numpy, special_days=mask_special_days)
@@ -24,7 +24,7 @@ Standalone usage
 Usage with StatsForecast
 ------------------------
     from statsforecast import StatsForecast
-    from analog_special_days import AnalogSpecialDays
+    from analog_holidays.analog import AnalogSpecialDays
 
     sf = StatsForecast(
         models=[AnalogSpecialDays(season_length=24, typereg='PCR')],
@@ -43,9 +43,9 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    from analog import _REGRESSORS
+    from .analog import _REGRESSORS
 except ImportError:
-    from train.analog import _REGRESSORS
+    from analog import _REGRESSORS
 
 
 def _coerce_special_days(values, expected_len: Optional[int] = None) -> np.ndarray:

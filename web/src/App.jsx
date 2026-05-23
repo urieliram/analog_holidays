@@ -296,7 +296,7 @@ export default function App() {
 
         {/* Footer */}
         <div style={s.footer}>
-          <span>Precomputed by identify_HOLIDAYS.py · Metric: PEARSON · p97 · Excl. 2022</span>
+          <span>Precomputed by shared/identify_HOLIDAYS.py · Metric: PEARSON · p97 · Excl. 2022</span>
           <span>ForeSight PML · ForecastEnergAI ForeSight Platform</span>
         </div>
       </main>

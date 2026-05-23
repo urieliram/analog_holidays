@@ -21,12 +21,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from analog_holidays.analog_special_days import AnalogSpecialDays, analog_special_days_core
+from .analog_special_days import AnalogSpecialDays, analog_special_days_core
 from analog_holidays.audit.data_loader import HOUR_COLS
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOURCE_PATH = PROJECT_ROOT / "analog_holidays" / "audit" / "data"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SOURCE_PATH = PACKAGE_ROOT / "audit" / "data"
 DEFAULT_LEVELS = [80, 95]
 
 

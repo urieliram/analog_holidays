@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-PROJ_ROOT = Path(__file__).resolve().parents[1]
+PROJ_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ _DATASET_CONFIGS: dict[str, DatasetConfig] = {
         key="mx",
         display_name="Mexico",
         demand_path=PROJ_ROOT / "data" / "demand_mx.csv",
-        notebook_holidays_path=PROJ_ROOT / "analog_holidays" / "holidays_recognized.json",
+        notebook_holidays_path=PROJ_ROOT / "analog_holidays" / "holidays" / "holidays_recognized.json",
         audit_holidays_path=PROJ_ROOT / "data" / "holidays_mx.json",
         region_prefix="SEN_demand_",
         default_regions=(
@@ -96,3 +96,13 @@ def format_region_label(region: str, dataset_key: str | None = None) -> str:
     if prefix and region.startswith(prefix):
         return region[len(prefix):]
     return region
+
+
+__all__ = [
+    "ACTIVE_CONFIG",
+    "ACTIVE_DATASET",
+    "DatasetConfig",
+    "format_region_label",
+    "get_dataset_config",
+    "list_dataset_regions",
+]

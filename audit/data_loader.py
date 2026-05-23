@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from analog_holidays.dataset_config import list_dataset_regions
+from analog_holidays.shared.dataset_config import list_dataset_regions
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 PROJ_ROOT   = Path(__file__).resolve().parents[2]
@@ -39,7 +39,7 @@ def _load_cache() -> pd.DataFrame:
         raise FileNotFoundError(
             f"Audit cache not found at:\n  {CACHE_PATH}\n\n"
             "Run the precompute script first:\n"
-            "  python -m analog_holidays.audit.build_cache"
+            "  python audit/build_cache.py"
         )
     df = pd.read_parquet(CACHE_PATH)
     df["date"] = pd.to_datetime(df["date"])
