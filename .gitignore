@@ -221,7 +221,6 @@ references/
 prompts/
 
 # Large data files (removed from git history)
-*.csv
 *.json
 *.parquet
 *.pdf
