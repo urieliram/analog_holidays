@@ -1,0 +1,403 @@
+\chapter{A real-time load forecasting method}
+\label{sec:forecasting}
+
+We have thoroughly addressed the UCP issue and considered it the computational core for scheduling the operation of electricity markets in the short-term. However, equally important is the demand forecast, which serves as one of the essential inputs for the UCP.
+
+For example, in Mexico, \textcolor{black}{short-term load forecast (STLF) and very short-term load forecast (VSTLF)} are calculated daily for the scheduling processes. On the one hand, STLF calculated seven days in advance in hourly periods are used for the day-ahead market (MDA) and seven-day operational planning (AU-HE). On the other hand, VSTLF calculates two and a half hours ahead in fifteen-minute intervals, are used in the real-time market, specifically in the Real-time Unit Commitment (AU-TR) and Economic Dispatch with Multi-interval Network Constraints (DERS-MI) processes. The main features of the forecasts and their use in the electricity market in Mexico are shown in Table \ref{tab:horizonforecast}.
+
+In this dissertation, VSTLF is understood as the forecast with a horizon ranging from a few minutes to a few hours, while real-time forecasting refers to the continuously calculated forecast using periodically refreshed data. The research of this chapter covers both concepts simultaneously.
+
+%\begin{tabular}{lr>{\RaggedRight}p{2.5cm}rr>{\RaggedRight}p{4cm}rrr}\toprule
+\begin{table}[!htp]\centering
+\caption{Electricity demand forecasts in the Mexican market, based on \citep{SENER2017b}.}\label{tab:horizonforecast}
+\scriptsize
+\scalebox{0.8}{
+\begin{tabular}{lr>{\RaggedRight}p{2.3cm}rr>{\RaggedRight}p{2.9cm}rrr}\toprule
+\textbf{Forecast} &\textbf{Market model} &\textbf{Deadline for submitting forecasts} &\textbf{Time horizon} &\textbf{Time interval} &\textbf{Update frequency} \\\cmidrule{1-6}
+&Medium-term planning & & &  & \\
+Short-term &AU-MDA &10:00 a.m. daily &7 days &1 hour &Daily \\
+&AU-GC & & & & \\\cmidrule{1-6}
+VSTLF &AU-TR &before every quarter hour &2.5 hours &15 minutes (10 data) &Continuously every 15 minutes  \\
+&DERS-MI & & & & \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Although unit commitment models and their solution methods can achieve very accurate results with negligible gaps, suppose the demand for which the operation is scheduled comes from a forecast with a low degree of accuracy. In that case, it can lead to significant deviations between generator scheduling and power system operation, with unexpected energy and reserve costs. Forecasts above the real demand can lead to higher costs for keeping generators running and extra reserve payments to compensate for deviations. Conversely, forecasts below actual demand may result in a last-minute purchase of power at a higher price. Another risk can be over-generation, which can jeopardize the system's security, which depends heavily on balance between generation and demand \citep{zuniga2019prediction}. Therefore, having a quality forecasting method with high accuracy helps to maximize the economic benefits of the marking participants while preventing power system security problems. 
+
+In this chapter, we propose a demand forecasting method for a real-time electricity market; the method is called Analog Multiple with Moving Averages (AnMA).
+This method is divided into three phases: neighbor selection, calculation of a baseline forecast, and correction of the baseline forecast. The method is designed as a framework in which each phase can combine both statistical and machine learning tools. As a result, the AnMA method computes very short-term load forecasting (VSTLF) very fast and with a low computational cost. Moreover, it has proven to be sensitive to sudden load changes and excellent real-time bias adjustment.
+
+\section{Real-time forecasting}
+Real-time electricity markets operate continuously 24 hours a day, every day of the year, collecting inputs, solving optimization problems (such as UCP), and delivering results within minutes. In addition, the results are published continuously. Therefore, the speed of the very short-term demand forecast (VSTLF) calculation is as important as its accuracy. However, accuracy and computation time in currently used forecasting methods seem to be opposite attributes. Algorithms with high levels of accuracy may take many hours of training before they can be used; on the other hand, using simpler algorithms with little training may deliver results with low accuracy. 
+The solution to this trade-off has been to increase the computational capacity of the equipment, involving high infrastructure and processing costs. Some forecasting models typically used are long-memory neural networks with high training times.
+
+%A real-time market forecasting (RTM) method demands more than just accuracy and computational speed. Real-time forecasting methods must meet other requirements, such as:
+
+A real-time market forecasting (RTM) method demands more than just accuracy and computational speed. Real-time forecasting methods must meet other requirements, such as adaptability, low computational cost, robustness, and reproducibility. These requirements will be discussed in detail as follows.
+
+\begin{itemize}
+\item Adaptability: The method must consider corrections for sudden changes in demand due to external factors such as cold fronts, rain, or even network operations or failures. Therefore, the forecast must update its calculations with the most recent demand information coming in real-time. 
+    \item Low computational cost: This feature is fundamental when different forecasting methods are run simultaneously, or the forecasting method shares resources with other processes on the same equipment. A computationally cheap forecasting method has the benefit of saving on infrastructure investments and reducing the carbon footprint. They are also ideal when computing resources are limited.
+    \item Robustness: The model must have a high convergence, always guaranteeing results for the market. Although some convergence problems are often caused by singular matrices or numerical instability and may be difficult to prevent, they must be handled in the programming in the best possible way, or methods should be implemented to mitigate their effects. It is generally observed that simpler methods are less prone to failure.
+    \item Low maintenance: Models should be able to tune parameters automatically with minimal operator intervention. Simple algorithms with few parameters are preferred.
+    \item Reproducibility: Forecasting methods should be deterministic with the ability to obtain the same results even if run multiple times or on different equipment. The input data and the model parameters must be stored to repeat the calculation if required.
+\end{itemize}
+
+\citet{Dannecker2015} provides a comprehensive analysis of the forecasting needs for electricity markets, and we concur with certain aspects discussed in the article.
+
+Real-time demand forecasting is not only used in market environments; it also benefits various other real-time applications, such as look-ahead applications. These applications aim to predict immediate system behavior and assist in operational decision-making. Additionally, real-time forecasting is employed in the economic dispatch of generation, transient stability analysis, online coordination between different generation sources (including hydraulic, wind, and solar sources), price setting, and interchange scheduling \cite{Fan1994}.
+
+These methods, which look for patterns in the past similar to present behavior, are known as analogues (An). The idea was initially proposed by \cite{Monache2013}, who used it to predict errors in weather forecasts. However, the basic idea has been extended and used by several authors \cite{CostaEA2021,Alessandrini2014,Alessandrini2015,Alessandrini2015b}. 
+To the best of our knowledge, the analogues method has yet to be used to forecast electricity demand nor has a moving average adjustment been implemented for real-time data.
+
+The proposed method breaks the trail-off between accuracy and high computational cost, presenting a flexible environment that combines simple and complex statistical tools.
+
+
+
+
+
+\section{The Analogue Moving Average method}
+
+We propose the Analogue Moving Average (AnMA) method, a time series forecasting method based mainly on statistical components that consist of three phases: 
+\begin{itemize}
+    \item i)   Selection of the neighbors
+    \item ii)  Calculation of the baseline forecast
+    \item iii) Correction of the baseline forecast
+\end{itemize}
+
+
+%FALTA DEFINIR NOMENCLATURA
+
+\paragraph{Phase i. Selection of the neighbors}
+\label{sec:an_method}
+
+The load demand data set forms the time series $S = (s_1, s_2, \ldots, s_p)$ with $p$ periods. A sub-sequence is a set of consecutive periods in a time series. The AnMA method starts by defining a sub-sequence of the latest data $Y =\{y_j:j \in [|S|-v_1,|S|]\}$, where $v_1 \in \mathbf{N}$ is one of the most significant lags in the time series $S$ from auto-correlation function (ACF) \citep{Box2015}. Then, the forecast horizon of $Y'$ with size $v_2 : v_2 < v_1$ is defined. Note that $v_1$ should have a value greater than the forecast horizon, represented by $v_2$.
+
+From the sub-sequence $S' \subset S, S' = (s_1, s_2, \ldots, s_n)$ where $s_n = |S| - (v_1 + v_2)$, the set $X$ of $n$ sub-sequences of size $v_1$ is extracted. We will refer to this $X$ as a neighborhood and each one of its sub-sequences as a neighbor.
+
+Afterward, the set of sub-sequences $X_k: X_k \subset X$ represents the $k$ neighbors having the highest correlation with $Y$ based on a distance measure, i.e., the Pearson correlation coefficient. Those $k$ neighbors are selected using the $k$-nearest neighbors ($k$-NN) method \citep{martinez2019}. 
+
+Figure \ref{fig:figure_analog_An} depicts the time series S, from which the k neighbors are extracted, which are the sub-sequences of S with the highest correlation with the lastest data. Moreover, the subsequent data are displayed after the neighbors.
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.9\linewidth]{Figure/figure_analog_An.pdf}
+\scriptsize \caption{Phase of selection of neighbors, An method.}
+\label{fig:figure_analog_An}
+\end{figure}
+
+
+\paragraph{Phase ii. Calculation of the baseline forecast}
+In this step, we use a regression model to explain the recent data of $Y$ as a function of the neighbors $X_k$. In the basic version of the AnMA method, we use the ordinal least squares (OLS) method with backward stepwise elimination. As a result, we obtain an adjusted regression model M.
+
+Then, we obtained the set of sub-sequences $X'_k$ that are the subsequent periods of a size $v_2$ for each $X_k$. Finally, we input this set $X'_k$ as data to model M to estimate the baseline forecast $Y'$.
+
+Figure \ref{fig:figure_analog_regresion} depicts the regression phase, in which a regression model M is estimated with the latest data of the series $Y$ as the independent variable and the data of the k selected neighbors $X_k$ as the independent variables. The baseline forecast is the output of the M model with the sub-sequent of the neigbours data as input.
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.92\linewidth]{Figure/figure_analog_regresion.pdf}
+\scriptsize \caption{Phase of calculation of the baseline forecast.}
+\label{fig:figure_analog_regresion}
+\end{figure}
+
+Below in Figure \ref{fig:correlation} we show a actual example of selecting $X_k$ neighbors with a high correlation with the latest $Y$ data on the left side of the vertical line. The subsequent $X'_k$ series and the $Y'$ forecast are drawn on the right side of the vertical line. Note that there is no subsequent $Y$ data on the right side of the figure; instead, the $Y'$ forecast is drawn. 
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.9\linewidth]{Figure/neighbors_example.pdf}
+\scriptsize \caption{Left: neighbors $X_k$ with highest correlation with the lastest data $Y$. Right: subsequent data $X'_k$ and the baseline forecast $Y'$.}
+\label{fig:correlation}
+\end{figure}
+
+
+
+\paragraph{Phase iii. Correction of the baseline forecast}
+\label{ma_method}
+Because the An method is based on identifying and repeating patterns that have occurred in the past, it is susceptible to accumulating a bias over several periods before correcting itself. Therefore, the An method's baseline forecast ($Y'$) must be compensated for its use with new data from real-time. This way, it is provided with an adaptive mechanism to correct bias and sudden changes in demand by attenuating the error. 
+
+The AnMA method generates a time series of the differences between the forecast ($Y'$) and the actual demand ($S$). This time series of differences, also known as the error series, can be mathematically represented as $\epsilon={\epsilon_t:t \in [-v,0]}$. The variable $t$ in this equation represents the time period, with $t=0$ being the current time and $t=-v$ being the time interval. This means that the error series contains the latest $v$ errors of the An method. It's important to keep the baseline forecast results, as they will be used to correct future forecasts.
+
+We use a moving average (MA) \cite{Box2015} model to calculate the following forecast errors $\hat{\epsilon}$ with the stored latest data $\epsilon$.
+% We use the Yule-Walker equations to estimate the MA coefficients' values, which help reduce the calculation time with a minimum loss of precision.
+
+Finally, combining the An and MA methods, we calculate the  final forecast $Y''$, adding the $\hat{\epsilon}$ to the result of the baseline forecast $Y'$ as follows: $Y''= Y'(t) + \hat{\epsilon}(t), \ \forall t={1,\ldots,w}$.
+
+Figure \ref{fig:figure_analog_ma} depicts the phase of correction. First, we obtain an error series $\epsilon$ by subtracting the latest actual data from the previous baseline forecast. Second, we compute the bias $\hat{\epsilon}$ using an MA model. Third, we correct the baseline forecast error by adding the bias $\hat{\epsilon}$.
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.65\linewidth]{Figure/figure_analog_ma.pdf}
+\scriptsize \caption{Phase of correction, MA method.}
+\label{fig:figure_analog_ma}
+\end{figure}
+
+
+
+To provide a comprehensive overview of the AnMA method, Figure \ref{fig:figure_analog_III} merge the three phases of the method: i) Selection of neighbors, ii) Calculation of the baseline forecast, and iii) Correction of the baseline forecast.
+
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.8\linewidth]{Figure/figure_analog_III.pdf}
+\scriptsize \caption{AnMA method.}
+\label{fig:figure_analog_III}
+\end{figure}
+
+%Phase i. Selection of the neighbors
+%Phase ii. Calculation of the baseline forecast
+%Phase iii. Correction of the baseline forecast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{AnMA variants}
+
+The basic version of the proposed AnMA method uses statistical tools such as OLS with stepwise as the regression model and the Pearson coefficient as the measure of distance between neighbors. However, other variations of the method can be implemented using other statistical and machine learning tools in the neighbor selection and calculation of the baseline forecast phases.
+
+The first variant can be performed in the neighbor selection phase by changing the distance measure between neighbors from the Pearson correlation coefficient to the Euclidean distance. 
+
+The second variant is performed at the calculation of the baseline forecast phase, applying tools such as principal component regression (PCR) and partial least squares (PLS), which are linear dimension reduction methods that keep a subset of the relevant variables (in our case, the neighbors) and discard the rest in the model. Other regression models are Lasso and Ridge, with small differences, which are shrinkage methods that impose a penalty on the regression coefficients for their size, minimizing the penalized residual sum of squares. Finally, we can use ensemble-based machine learning models such as Random Forest (RF), Bagging, and Boosting. 
+All these machine-learning methods are based on ensembles. RF is a method that combines multiple decision trees to create a solution; Bagging is a method that combines multiple solutions of the same type of prediction to decrease variance. Boosting is a method that combines multiple types of predictions to decrease bias.
+These methods are broadly discussed by \citet{Hastie2009}.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Experimental work}
+The tests consist of calculating the demand forecast of a time series, using the proposed AnMA method and its variants against other benchmark methods that compete in accuracy and computational speed. 
+
+Two tests will be carried out:
+  \begin{itemize}
+      \item Calculation of the demand forecast for five minutes (one period).
+      \item Calculation of the demand forecast for two-and-a-half hours (thirty periods).
+  \end{itemize}
+  
+The AnMA method's default version uses OLS with stepwise as the regression method and the Pearson coefficient as the distance metric during neighbor selection. However, other AnMA variants use different regression methods such as PCR, PLS, Lasso, Ridge, RF, Boosting, and Bagging. Additionally, two neighbor selection metrics are used in the AnMA approach: Pearson's coefficient (the default) and Euclidean distance (indicated by the suffix \texttt{\_euc}). The idea behind using these variants is to identify the best combination of regression model and selection metric that produces the most accurate results.
+
+We have selected the additive Holt-Winters (HWA), multiplicative Holt-Winters (HWM), autoregressive moving average (ARMA), and persistent or naive methods as reference benchmarks to test the AnMA approach. These widely-used benchmarks possess important qualities such as adaptability, low computational cost, robustness, and reproducibility, which are essential for real-time forecasting in an electricity market. Our AnMA method will be compared to these benchmarks to determine its accuracy and promptness.
+
+Accuracy metrics will be in terms of mean absolute percentage error (MAPE), and mean absolute error (MAE). We will also measure the CPU time of the models and particularly for AnMA the time of the neighbor selection, regression, and correction baseline; the time is measured in seconds.
+
+As a validation method, $k$-fold cross-validation will be used in a particular setup for time series forecasting, same to the purpose of \citet{Bergmeir2018}. 
+However, we simulate real-time data by incorporating the latest data point while removing the oldest point using a first-in, last-out approach. This method of simulating real-time data ensures that the algorithm operates with the most up-to-date information available.
+
+Figure \ref{fig:traintest} shows the time series data divided into training (blue) and testing (orange) periods for training and evaluating the method performance.
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.8\linewidth]{Figure/fig_traintest.pdf}
+\scriptsize \caption{Training and testing periods for tests.}
+\label{fig:traintest}
+\end{figure}
+
+Also, the tests will analyze how effectively the MA error correction component reduces the error of the baseline forecast generated by An. To assess the MA correction's impact, we omit the MA correction in some variants of AnMA identified only by the prefix \texttt{An}. The test aims to demonstrate the significant effect of the baseline forecast correction approach that uses moving averages on the final forecast.
+
+The AnMA method is coded in Python version 3.10.0 The scikit-learn and statsmodels libraries developed by \citet{scikit-learn,seabold2010statsmodels} in Python language were used. Plots of results with Mathplotlib \citep{Hunter2007}. The source code of the AnMA method and data is available in the \url{https://github.com/urieliram/analog/blob/main/Analog3.ipynb} repository. 
+The hardware employed was a $64$-bit with $64$GB of RAM with a $2.50$ GHz Intel(R) i7(R) 11700 CPU,65W, on a Linux Ubuntu operating system. 
+
+\subsection{Dataset}
+The tests use a time series of load demand from a typical region of Mexico. The time series plot in Figure \ref{fig:series2} considers one year of load data with a sampling frequency of five minutes. As can be seen, the series presents seasonal patterns, i.e., the load increases during the warm seasons reaching approximately 2500 MW, and decreases during the cold seasons, with a load of approximately 1000 MW. The data are available in this repository \url{https://github.com/urieliram/analog/blob/main/data5min.csv}
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.8\linewidth]{Figure/series2.pdf}
+\scriptsize \caption{Time series of load demand.}
+\label{fig:series2}
+\end{figure}
+
+
+
+
+\subsection{Parameters}
+The AnMA approach has few parameters. Firstly, a subsequences length of $288$ data points is used for $v_1$, equivalent to one day. This subsequence size is important because it determines the length of the subsequence of the neighbors. Additionally, the AnMA searches five neighbors $k=5$, and a lag of $144$ periods are used for baseline forecast error correction through MA.
+
+We initially planned to use auto-ARIMA libraries from \cite{Hyndman2008,garza2022statsforecast} for day-ahead forecasts since they have been effective in previous studies \citep{Karabiber2019}. 
+However, we found that they were unsuitable for real-time scenarios due to their extensive computation time, which averaged around ten minutes per forecast, exceeding the maximum time limit of ten seconds per forecast. Instead, we opted for a faster AR-MA approach. Additionally, to account for the daily and weekly seasonality of electricity demand \cite{Alysha2011}, we implemented an AR model with a 7-day lag ($288 \times 7$ periods). We performed error correction by applying an MA model with a half-day lag ($144$ periods) to the errors of the AR forecast. Finally, the HWA and HWM models were trained using the historical data from the last month.
+
+
+
+
+\subsection{Real-time demand forecasting tests results}
+The results of the five-minute test suggest that the AnMA variants with the PCR, Lasso, and Ridge regression methods are the most efficient methods in terms of CPU time, with mean values of $1.6022$, $1.5335$, and $1.6184$ seconds, respectively. The mean CPU execution time of AnMA-PCR was $1.6022$ seconds, used into $1.5959$ seconds for neighbor selection, while $0.0018$ seconds were used for regression. It should be noted that the time for baseline correction was negligible. 
+ Furthermore, these methods use Pearson's coefficient as the similarity metric, which has proven effective in this context.
+
+The Persistence method had negligible CPU time and usage, indicating that it is high-speed and lightweight. However, the HWM, HWA, and ARMA methods had longer mean CPU times, with values of $5.5842$, $3.5475$, and $12.6203$ seconds, respectively.
+
+Regarding accuracy, the AnMA variants with PCR, Lasso, and Ridge methods had lower MAPE values of $0.2512$, $0.2892$, and $0.2893$, respectively. On the other hand, benchmarks such as HWM, HWA, Persistence, and ARMA obtained higher MAPE values of $0.3604$, $0.3637$, $0.3310$, and $0.1633$, respectively.
+
+It is important to mention that in both tests, AnMA and its related methods (HWA, HWM, and persistent) used only one processor core, whereas ARMA used all eight cores. The tests recorded the minute-by-minute CPU utilization. 
+
+All models, except for ARMA, were tested using a single processing core to ensure a fair comparison. Although the Statsmodel \citep{seabold2010statsmodels} library implemented in ARMA is designed to use all computer resources to speed up the process, our benchmarks, including our AnMA, still outperformed it in terms of speed. 
+
+Furthermore, the AnMA variants with PCR, Lasso, and Ridge methods had lower MAE values of $6.80$, $7.83$, and $7.83$ in MW, respectively. In contrast, benchmarks such as HWM, HWA, Persistence, and ARMA obtained higher MAE values of $9.82$, $9.91$, $9.03$, and $4.45$ in MW, respectively.
+
+These results suggest that the AnMA variants with PCR, Lasso, and Ridge methods are efficient and accurate for forecasting, while the Persistence method is a good choice when speed is of utmost importance; however, Persistence obtained the worst accuracy results compared to the other benchmarks. The benchmarks such as HWM, HWA, and ARMA may be less suitable for this particular application, given their higher CPU times.
+
+Figure \ref{fig_mape_vs_time} and Figure \ref{fig_mape_vs_timeX} provide a visual representation of the performance comparison of the forecasting methods. Both figures have a dual-axis plot, where the left axis represents CPU execution time in seconds, and the right axis represents MAPE and MAE values. The blue bars represent the performance of AnMA methods, while the orange bars represent the benchmark methods such as \texttt{Persistence}, \texttt{HWA}, \texttt{HWM}, and \texttt{ARMA}. Additionally, black crosses denote the MAE, and gray dots denote the MAPE values. The figures clearly compare the methods, indicating the fastest and most accurate forecasting methods.
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{Figure/mape_vs_time.pdf}
+\scriptsize \caption{Real--time demand forecast summary in five minutes.}
+\label{fig_mape_vs_time}
+\end{figure}
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{Figure/mape_vs_timeX.pdf}
+\scriptsize \caption{Summary of the real--time demand forecast in two-and-a-half hours.}
+\label{fig_mape_vs_timeX}
+\end{figure}
+
+Statistical tests are conducted for both tests to determine the significant differences in the means of the distributions of the absolute errors of AnMA-PCR, HWA, HWM, Persistence, and ARMA. 
+A Friedman test was conducted in the five-minute test, and a significant difference was found $p\text{--value}= 0.0000$, implying that the null hypothesis of equal means between groups is rejected and the alternative hypothesis of difference between groups is accepted. Subsequently, a Wilcoxon paired test was performed, and significant results were obtained between AnMA-PCR and Persistence, HMA, HWM, and AnMA-OLS with $p\text{--value}= 0.0000$ for all hypothesis tests. 
+This results in rejecting the null hypothesis of equality and accepting the alternative hypothesis that AnMA-PCR has lower absolute errors on average compared to the standard AnMA-OLS version and benchmark methods. 
+In a two-and-a-half-hour test, a Friedman test was conducted and found to be significant $p\text{--value}= 0.0000$, leading to the rejection of the null hypothesis of equal means between groups and the acceptance of the alternative hypothesis of difference between groups. Subsequently, a Wilcoxon paired test was then performed, resulting in significant results $p\text{--value}= 0.0000$ for AnMA-PCR compared to Persistence, HMA, and HWM. 
+The Wilcoxon test showed ARMA errors were significantly smaller than AnMA-PCR, with p-value $p\text{--value}= 0.0000$. 
+This rejection of the null hypothesis of equality indicates that AnMA-PCR has, on average, lower absolute errors than the standard AnMA-OLS version, HMA, and HWM. Note that rejecting the null hypothesis of equality indicates that ARMA has, on average, lower absolute errors than AnMA-PLS.
+
+All these results are further supported by Figures \ref{fig:error} and \ref{fig:errorX}, which display the overlapping distribution of absolute errors between \texttt{AnMA-PCR} and the benchmark methods.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{Figure/fig:error.pdf}
+    \scriptsize \caption{Comparison of absolute error distributions between \texttt{AnMA-PCR} and benchmarks, five-minute test.}
+\label{fig:error}
+\end{figure}
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{Figure/fig:errorX.pdf}
+\scriptsize \caption{Comparison of absolute error distributions between \texttt{AnMA-PCR} and benchmarks, two-and-a-half hours' test.}
+\label{fig:errorX}
+\end{figure}
+
+We have observed a reduction in error variance in methods that incorporate the Moving Average (MA) component, namely AnMA-PCR, AnMA-Lasso, AnMA-Ridge, AnMA-OLS, and AnMA-OLS-euc; compared to methods that do not include this component, such as An-PCR, An-Lasso, An-Ridge, An-OLS, and An-OLS-euc. This variance reduction effect has been confirmed using Levene's statistical test, which assumes a null hypothesis (Ho) that the error distributions of all methods have the same variance and an alternative hypothesis (Ha) that the error distributions have different variances. The results of the test indicate a significant difference, providing sufficient evidence to conclude that the methods using MA have lower variance than those that do not. The table containing the results of Levene's test is provided in Table \ref{tab:Levene}. Additionally, the overlapping distribution of errors between \texttt{AnMA-PCR, AnMA-Lasso, AnMA-Ridge, AnMA-OLS, AnMA-OLS-euc} and the \texttt{An-PCR, An-Lasso, An-Ridge, An-OLS, and An-OLS-euc} methods shown in Figures \ref{fig:multiple} and \ref{fig:multipleX} provides further support for these results and thus observe the benefits of the correction stage.
+\begin{figure}
+\centering
+\includegraphics[width=\textwidth]{Figure/fig:multiple.pdf}
+\scriptsize \caption{Distribution of errors between forecasts with MA correction, five-minute test.}
+\label{fig:multiple}
+\end{figure}
+\begin{figure}
+\centering
+\includegraphics[width=\textwidth]{Figure/fig:multipleX.pdf}
+\scriptsize \caption{Distribution of errors between forecasts with MA correction,two-and-a-half hours' test.}
+\label{fig:multipleX}
+\end{figure}
+An example of bias correction in the forecasted time series is illustrated in Figure \ref{fig:episode2}. First, a baseline forecast ($Y'$) is generated and compared to actual observations to calculate the bias. The MA model is then applied to estimate the expected error based on the bias and adjust the original forecast to correct for the bias. It is important to note that the baseline forecast needs to be stored for some time before the MA calculation can be performed, and the MA model will correct for the bias in the same period in which it occurs. 
+\begin{figure}
+\centering
+\includegraphics[width=\textwidth]{Figure/episode2.pdf}
+\scriptsize \caption{Correction for the An forecast bias through of MA model.}
+\label{fig:episode2}
+\end{figure}
+
+In Figure \ref{fig:episode1}, we display the August forecast results for the AnMA-PCR and ARMA methods during a two-and-a-half-hour test. The graph depicts the predicted values from each method in orange and green lines, respectively, while the actual observations are shown in blue. The predicted values of both methods closely follow the observed data points, with a minimal amount of deviation between the predicted and actual values. This low deviation indicates that both methods produce accurate and reliable forecasts, making them well-suited for real-time load demand forecasting applications.
+\begin{figure}
+\centering
+\includegraphics[width=\textwidth]{Figure/episode1.pdf}
+\scriptsize \caption{August forecast for AnMA-PCR and ARMA methods, two and a half hours test.}
+\label{fig:episode1}
+\end{figure}
+
+
+
+
+
+
+
+
+
+\section{Discussion}
+The objective of this study was to compare the performance of various methods for load demand forecasting, including our proposed method, in terms of accuracy and computational efficiency. The experimental results are discussed as follows.
+
+The two tests showed that the AnMA method with its PCR, Lasso, and Ridge variants had a faster average computational time and the most significant accuracy compared to the HWA and HWM methods. Furthermore, although the persistent model was much faster, the accuracy was higher for AnMA. On the other hand, although the AnMA method was much faster than ARMA, ARMA was more accurate; however, the runtime of ARMA exceeded the established runtime of 10 seconds. Moreover, the dimension-reduced and shrinkers variants of AnMA performed better than the standard AnMA version using stepwise OLS regression. Statistical tests support all findings.
+
+The best variants of AnMA use Pearson's coefficient as a similarity metric instead of Euclidean distance, taking advantage of the seasonal and repetitive behaviors in load data to quickly find the most similar past days. This makes the method fast and efficient, with computational complexity proportional only to the number of windows being compared, making it an ideal choice for load demand forecasting. Therefore, the Pearson correlation assumption enhances the efficiency of the following regression process, making it a synergistic feature for the AnMA method.
+
+Moreover, AnMA is particularly suitable for real-time applications due to its calculation speed and low CPU usage. It can also be shared with other processes on the same machine, providing an indirect advantage.
+
+The tests' finding shows that incorporating bias correction techniques such as MA can improve the accuracy and reliability of their forecasts in real-time, supported by statistical tests.
+
+The CPU time and resource consumption for the AnMA-PCR method were significantly lower using one core to 15\% capacity, in contrast to the ARMA model, which proved to be the most computationally expensive, occupying all eight processor cores with a mean CPU utilization of 92\%. 
+
+Furthermore, the environmental impact of each method was assessed by calculating their carbon footprint, which takes into account the CPU usage and core count, as well as the location and computer specifications. The results, including the energy consumption (in kWh) and CO$_{2}$ emissions, are presented in Table \ref{tab:footprint}, along with the total runtime of each method, the number of cores used, and the energy spent in kWh. The calculator footprint used is available online at \url{http://calculator.green-algorithms.org/}.
+
+\begin{table}[H]
+\centering
+\caption{Carbon footprint per method, \cite{Lannelongue2021}.}
+\label{tab:footprint}
+\footnotesize
+\begin{tabular}{cccccc}
+\hline
+\hline
+Method      & Runtime  & Cores & \% CPU & kWh    & kg-CO$_2$e  \\ \hline
+ARMA        & 92:53:00 & 8     & 92.0   & 7.7500 & 3.3400   \\ 
+HWM         & 41:06:00 & 1     & 17.1   & 1.0400 & 0.4472   \\ 
+HWA         & 26:07:00 & 1     & 16.8   & 0.6581 & 0.2839   \\ 
+AnMA-Ridge  & 11:54:00 & 1     & 18.0   & 0.3010 & 0.1298   \\ 
+AnMA-PCR    & 11:47:00 & 1     & 15.0   & 0.2952 &  0.1273  \\ 
+AnMA-Lasso  & 11:17:00 & 1     & 27.5   & 0.2941 & 0.1268   \\ 
+Persistence & 00:44:00 & 1     &  1.0   & 0.0078 & 0.0180   \\  \hline \hline
+\end{tabular}
+\end{table}
+
+
+
+
+
+
+
+
+\section{Conclusions}
+The main contribution of this chapter is developing the AnMA method as a novel real-time load demand forecasting approach that combines Analog and Moving Average techniques within a flexible framework with exchangeable components. Its accuracy is competitive with the current state-of-the-art, requiring less time and CPU use than the benchmarks. The method's main advantage is its low computational cost, allowing it to operate in real-time scenarios. Additionally, its MA component adapts immediately to changes in data behavior, ensuring its accuracy and efficiency.
+
+To evaluate the performance of our AnMA method and its variants, we conducted a simulation of three months of real-time load demand forecasting. The simulation results showed that our AnMA method with PCR, Lasso, and Ridge variants outperformed the other methods in terms of accuracy and computational efficiency. Specifically, our method had a faster mean computational time and higher accuracy compared to the HWA, HWM, and persistent methods and had accuracy similar to ARMA but at a much lower computational cost. This was achieved using Pearson's coefficient as a similarity metric, dimension reduction, and shrinking regressions. Based on these results, we conclude that AnMA with PCR, Lasso, and Ridge variants is a promising real-time load demand forecasting approach with high accuracy and computational efficiency.
+
+AnMA adapts to demand changes by estimating residual errors of a baseline forecast using a moving average MA component. The MA correction reduces variance and improves performance.
+
+Compared to benchmark statistical methods, our developed approach enables automated demand forecasting every five minutes, 24/7, yielding results in less than two seconds and demonstrating competitive accuracy.
+
+We are currently working on improving the accuracy of the AnMA algorithm while maintaining its efficiency. In the next version, we plan to experiment with selecting neighbors from subsets of days. Additionally, we plan to work on parallelizing the algorithm, expecting it to lead to better performance. Our goal is to continue innovating and enhancing the AnMA algorithm to better serve the field of load demand forecasting with an efficient method.
+
+\section{Future research}
+\begin{itemize}
+    \item The accuracy can be improved by pre-selecting the days on weekdays, Saturdays, Sundays, and holidays.
+    \item Other similarity measures, such as dynamic time warping, can be used and evaluated.
+    \item It would be interesting to compare this method against pattern similarity-based methods, where the forecasting problem can be simplified, as proposed by \citep{Dudek2016}.
+    \item Other computationally inexpensive error smoothing methods, such as Kalman filtering, can be tested.
+    \item Computation time can be further reduced, and more historical data can be used by parallelizing the sample selection process.
+    \item It is noted that the largest errors of the AnMA method are found in the day's peaks. A new version of the AnMA method that includes the prediction of peak demand can be included in the method.
+    \item The accuracy of load demand forecasts can be improved by incorporating weather variables and adding a corrective phase.
+   % \item Accuracy can be improved by pre-selecting the days on weekdays, Saturdays, Sundays, and holidays.
+   % \item Other similarity measures, such as dynamic time warping, can be used and evaluated. %Could use other similarity measures such as dynamic time warping. 
+   % \item It would be interesting to compare this method against pattern similarity-based methods, where the forecasting problem can be simplified, as proposed by \citet{Dudek2016}.
+    %\item Other computationally inexpensive error smoothing methods, such as Kalman filtering, can be tested.
+   % \item Implementation improvements such as parallelizing the sample selection process can further reduce computation time and allow more historical data to be used.
+  %  \item It is noted that the largest errors of the AnMA method are found in the day's peaks. A new version of the AnMA method that includes the prediction of peak demand can be included in the method.
+  %  \item Incorporating weather variables can improve the accuracy of load demand forecasts by adding a corrective phase to the forecast.
+\end{itemize}
+
+%• una versi´on probabil´ıstica del m´etodo analogo con ensambles.
+%• comparison with patterns, DL pre-training.

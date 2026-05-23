@@ -1,0 +1,99 @@
+{
+  "country": "MX",
+  "calendar_name": "holidays_recognized",
+  "version": 3,
+  "description": "Local recurring catalog of recognized holidays for exploratory analysis. It defines each holiday and its official rule without depending on a specific year. Civic holidays whose observed date changes after legal reform are modeled as movable with observed_rule.",
+  "holidays": [
+    {
+      "id": "new_years_day",
+      "name": "New Year's Day",
+      "date_type": "fixed",
+      "month": 1,
+      "day": 1
+    },
+    {
+      "id": "constitution_day",
+      "name": "Constitution Day",
+      "date_type": "movable",
+      "month": 2,
+      "day": 5,
+      "observed_rule": "first_monday_of_february"
+    },
+    {
+      "id": "benito_juarez_birthday",
+      "name": "Benito Juarez's Birthday",
+      "date_type": "movable",
+      "month": 3,
+      "day": 21,
+      "observed_rule": "third_monday_of_march"
+    },
+    {
+      "id": "maundy_thursday",
+      "name": "Maundy Thursday",
+      "date_type": "movable",
+      "rule": "3_days_before_easter"
+    },
+    {
+      "id": "good_friday",
+      "name": "Good Friday",
+      "date_type": "movable",
+      "rule": "2_days_before_easter"
+    },
+    {
+      "id": "holy_saturday",
+      "name": "Holy Saturday",
+      "date_type": "movable",
+      "rule": "1_day_before_easter"
+    },
+    {
+      "id": "labor_day",
+      "name": "Labor Day",
+      "date_type": "fixed",
+      "month": 5,
+      "day": 1
+    },
+    {
+      "id": "independence_eve",
+      "name": "Independence Eve",
+      "date_type": "fixed",
+      "month": 9,
+      "day": 15
+    },
+    {
+      "id": "independence_day",
+      "name": "Independence Day",
+      "date_type": "fixed",
+      "month": 9,
+      "day": 16
+    },
+    {
+      "id": "mexican_revolution_day",
+      "name": "Mexican Revolution Day",
+      "date_type": "movable",
+      "month": 11,
+      "day": 20,
+      "observed_rule": "third_monday_of_november"
+    },
+    {
+      "id": "christmas_eve",
+      "name": "Christmas Eve",
+      "date_type": "fixed",
+      "month": 12,
+      "day": 24
+    },
+    {
+      "id": "christmas_day",
+      "name": "Christmas Day",
+      "date_type": "fixed",
+      "month": 12,
+      "day": 25
+    },
+    {
+      "id": "new_years_eve",
+      "name": "New Year's Eve",
+      "date_type": "fixed",
+      "month": 12,
+      "day": 31
+    }
+  ]
+}
