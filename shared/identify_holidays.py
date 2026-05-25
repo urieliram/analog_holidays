@@ -2143,6 +2143,30 @@ _SELECTOR_SEASON_MAP = {
     9: 'Autumn', 10: 'Autumn', 11: 'Autumn',
 }
 
+_SELECTOR_PROFILE_COLUMNS = [
+    'best_matching_weekday',
+    'daily_profile_cluster',
+    'daily_profile_cluster_id',
+    'daily_profile_archetype',
+    'event_profile_cluster',
+    'event_profile_cluster_id',
+]
+
+_SELECTOR_FEATURE_COLUMNS = [
+    'holiday_name',
+    'anchor_holiday_name',
+    'date',
+    'holiday_day_type',
+    'weekday_name',
+    'day_class_code',
+    'day_class_name',
+    'season',
+    'date_rule',
+    'is_fixed_date',
+    'is_observed_monday_rule',
+    *_SELECTOR_PROFILE_COLUMNS,
+]
+
 
 def _load_selector_holiday_metadata(holidays_path: Path | str | None) -> dict[str, dict]:
     """Return a holiday-name metadata map from the JSON catalog."""
@@ -2303,6 +2327,46 @@ def _selector_day_class_code(day_of_week: int) -> int:
     return 1
 
 
+def _empty_selector_feature_frame() -> pd.DataFrame:
+    """Return an empty selector feature table with the exported schema."""
+    return pd.DataFrame(columns=_SELECTOR_FEATURE_COLUMNS)
+
+
+def _finalize_selector_feature_frame(
+    selector_df: pd.DataFrame,
+    holiday_metadata: dict[str, dict],
+) -> pd.DataFrame:
+    """Add calendar fields and enforce the selector export schema."""
+    if selector_df.empty:
+        return _empty_selector_feature_frame()
+
+    selector_df = selector_df.copy()
+    selector_df['date'] = pd.to_datetime(selector_df['date']).dt.normalize()
+
+    for col_name in _SELECTOR_PROFILE_COLUMNS:
+        if col_name not in selector_df.columns:
+            selector_df[col_name] = pd.NA
+
+    selector_df['weekday_name'] = selector_df['date'].dt.day_name()
+    selector_df['day_class_code'] = selector_df['date'].dt.dayofweek.map(_selector_day_class_code)
+    selector_df['day_class_name'] = selector_df['day_class_code'].map(_SELECTOR_DAY_CLASS_MAP)
+    selector_df['season'] = selector_df['date'].dt.month.map(_SELECTOR_SEASON_MAP)
+
+    rule_fields = selector_df.apply(
+        lambda row: _selector_date_rule(
+            row['holiday_name'],
+            row['date'],
+            holiday_metadata,
+        ),
+        axis=1,
+        result_type='expand',
+    )
+    rule_fields.columns = ['date_rule', 'is_fixed_date', 'is_observed_monday_rule']
+    selector_df = pd.concat([selector_df, rule_fields], axis=1)
+
+    return selector_df[_SELECTOR_FEATURE_COLUMNS].sort_values(['date', 'holiday_name']).reset_index(drop=True)
+
+
 def build_holiday_selector_features(
     df_wide: pd.DataFrame,
     df_holidays: pd.DataFrame,
@@ -2346,7 +2410,7 @@ def build_holiday_selector_features(
     selector_df = _build_selector_base_rows(df_holidays, available_dates)
 
     if selector_df.empty:
-        return selector_df
+        return _empty_selector_feature_frame()
 
     holiday_metadata = _load_selector_holiday_metadata(holidays_path)
 
@@ -2380,24 +2444,10 @@ def build_holiday_selector_features(
         daily_features['daily_profile_archetype'] = daily_features['daily_profile_cluster_id'].map(
             summary_cluster_type_map
         ).map(_selector_cluster_archetype)
-        daily_features = daily_features[
-            [
-                'date',
-                'best_matching_weekday',
-                'daily_profile_cluster',
-                'daily_profile_cluster_id',
-                'daily_profile_archetype',
-            ]
-        ]
+        daily_features = daily_features[['date', *_SELECTOR_PROFILE_COLUMNS[:4]]]
     else:
         daily_features = pd.DataFrame(
-            columns=[
-                'date',
-                'best_matching_weekday',
-                'daily_profile_cluster',
-                'daily_profile_cluster_id',
-                'daily_profile_archetype',
-            ]
+            columns=['date', *_SELECTOR_PROFILE_COLUMNS[:4]]
         )
 
     if not df_phol.empty:
@@ -2420,45 +2470,7 @@ def build_holiday_selector_features(
     selector_df = selector_df.merge(daily_features, on='date', how='left')
     selector_df = selector_df.merge(event_features, on='date', how='left')
 
-    selector_df['weekday_name'] = selector_df['date'].dt.day_name()
-    selector_df['day_class_code'] = selector_df['date'].dt.dayofweek.map(_selector_day_class_code)
-    selector_df['day_class_name'] = selector_df['day_class_code'].map(_SELECTOR_DAY_CLASS_MAP)
-    selector_df['season'] = selector_df['date'].dt.month.map(_SELECTOR_SEASON_MAP)
-
-    rule_fields = selector_df.apply(
-        lambda row: _selector_date_rule(
-            row['holiday_name'],
-            row['date'],
-            holiday_metadata,
-        ),
-        axis=1,
-        result_type='expand',
-    )
-    rule_fields.columns = ['date_rule', 'is_fixed_date', 'is_observed_monday_rule']
-    selector_df = pd.concat([selector_df, rule_fields], axis=1)
-
-    column_order = [
-        'holiday_name',
-        'anchor_holiday_name',
-        'date',
-        'holiday_day_type',
-        'weekday_name',
-        'day_class_code',
-        'day_class_name',
-        'season',
-        'date_rule',
-        'is_fixed_date',
-        'is_observed_monday_rule',
-        'best_matching_weekday',
-        'daily_profile_cluster',
-        'daily_profile_cluster_id',
-        'daily_profile_archetype',
-        'event_profile_cluster',
-        'event_profile_cluster_id',
-    ]
-
-    return selector_df[column_order].sort_values(['date', 'holiday_name']).reset_index(drop=True)
-
+    return _finalize_selector_feature_frame(selector_df, holiday_metadata)
 
 def _selector_modal_value(values: pd.Series):
     """Return the dominant non-null value of a selector column."""
@@ -2613,6 +2625,70 @@ def build_holiday_selector_priors(
     return pd.DataFrame(summary_rows)[column_order].sort_values(list(group_cols)).reset_index(drop=True)
 
 
+def build_future_holiday_selector_features(
+    df_holidays: pd.DataFrame,
+    df_priors: pd.DataFrame,
+    available_dates,
+    holidays_path: Path | str | None = None,
+    group_cols: tuple[str, ...] = ('anchor_holiday_name', 'holiday_day_type'),
+    start_date: pd.Timestamp | str | None = None,
+    end_date: pd.Timestamp | str | None = None,
+) -> pd.DataFrame:
+    """Build ex-ante selector rows for future holidays using historical priors.
+
+    This helper is intended for forecast horizons already present in the hourly
+    source table but excluded from the historical clustering window. It creates
+    the future H1/H2/H3/H4 rows from the holiday calendar, then fills the
+    profile-related fields from ``df_priors`` so the export stays leakage-free.
+    """
+    required_cols = set(group_cols)
+    missing_cols = required_cols - set(df_priors.columns)
+    if missing_cols:
+        raise ValueError(f'Missing required prior columns: {sorted(missing_cols)}')
+
+    inferred_map = {
+        'best_matching_weekday': 'inferred_best_matching_weekday',
+        'daily_profile_cluster': 'inferred_daily_profile_cluster',
+        'daily_profile_cluster_id': 'inferred_daily_profile_cluster_id',
+        'daily_profile_archetype': 'inferred_daily_profile_archetype',
+        'event_profile_cluster': 'inferred_event_profile_cluster',
+        'event_profile_cluster_id': 'inferred_event_profile_cluster_id',
+    }
+    missing_inferred = set(inferred_map.values()) - set(df_priors.columns)
+    if missing_inferred:
+        raise ValueError(f'Missing required inferred prior columns: {sorted(missing_inferred)}')
+
+    selector_df = _build_selector_base_rows(df_holidays, _normalize_date_set(available_dates))
+    if selector_df.empty:
+        return _empty_selector_feature_frame()
+
+    if start_date is not None:
+        selector_df = selector_df[
+            selector_df['date'] >= pd.Timestamp(start_date).normalize()
+        ].copy()
+    if end_date is not None:
+        selector_df = selector_df[
+            selector_df['date'] <= pd.Timestamp(end_date).normalize()
+        ].copy()
+    if selector_df.empty:
+        return _empty_selector_feature_frame()
+
+    prior_cols = list(group_cols) + list(inferred_map.values())
+    if 'prior_resolution_scope' in df_priors.columns:
+        prior_cols.append('prior_resolution_scope')
+
+    selector_df = selector_df.merge(
+        df_priors[prior_cols].drop_duplicates(subset=list(group_cols)),
+        on=list(group_cols),
+        how='left',
+    )
+    for target_col, source_col in inferred_map.items():
+        selector_df[target_col] = selector_df[source_col]
+
+    holiday_metadata = _load_selector_holiday_metadata(holidays_path)
+    return _finalize_selector_feature_frame(selector_df, holiday_metadata)
+
+
 def _resolve_analog_criterion_columns(criterion: str) -> tuple[str, str]:
     """Return selector/prior columns used by the analog-cluster criterion."""
     criterion_map = {
@@ -2673,6 +2749,10 @@ def assign_holiday_selector_analog_clusters(
         raise ValueError(f'Missing prior columns: {sorted(missing_priors)}')
 
     df_clusters = df_selector.copy()
+    for col_name in [prior_col, 'analog_criterion', 'analog_criterion_value', 'analog_cluster']:
+        if col_name in df_clusters.columns:
+            df_clusters = df_clusters.drop(columns=[col_name])
+
     merge_cols = list(group_cols) + [prior_col]
     df_clusters = df_clusters.merge(
         df_priors[merge_cols].drop_duplicates(subset=list(group_cols)),
@@ -2721,6 +2801,52 @@ def assign_holiday_selector_analog_clusters(
         'df_selector_clusters': df_clusters,
         'analog_cluster_catalog': catalog,
     }
+
+
+def load_selector_cluster_lookup(
+    selector_path: Path | str,
+    cluster_column: str = 'analog_cluster',
+) -> dict[pd.Timestamp, object]:
+    """Load a per-date selector cluster lookup from an exported selector CSV."""
+    selector_path = Path(selector_path)
+    if not selector_path.exists():
+        raise FileNotFoundError(f'Selector feature file not found: {selector_path}')
+
+    df_selector = pd.read_csv(selector_path, parse_dates=['date'])
+    if 'date' not in df_selector.columns:
+        raise ValueError(f'Selector CSV {selector_path} must contain a date column.')
+    if cluster_column not in df_selector.columns:
+        raise ValueError(
+            f'Selector CSV {selector_path} must contain the cluster column {cluster_column!r}.'
+        )
+
+    df_clusters = df_selector[['date', cluster_column]].copy()
+    df_clusters['date'] = pd.to_datetime(df_clusters['date']).dt.normalize()
+    df_clusters = df_clusters.dropna(subset=[cluster_column])
+    if df_clusters.empty:
+        return {}
+
+    conflicting_dates = (
+        df_clusters.groupby('date')[cluster_column]
+        .nunique(dropna=True)
+        .loc[lambda series: series > 1]
+    )
+    if not conflicting_dates.empty:
+        preview = ', '.join(
+            pd.Timestamp(date_value).strftime('%Y-%m-%d')
+            for date_value in conflicting_dates.index[:5]
+        )
+        raise ValueError(
+            'Selector CSV has conflicting cluster labels for the same date '
+            f'in column {cluster_column!r}: {preview}'
+        )
+
+    return (
+        df_clusters.sort_values('date')
+        .drop_duplicates(subset=['date'], keep='first')
+        .set_index('date')[cluster_column]
+        .to_dict()
+    )
 
 
 def identify_future_holiday_analog_cluster(
@@ -2842,66 +2968,3 @@ def get_historical_analog_pool(
     }
 
 
-def build_analog_cluster_source_table(
-    source_path: Path | str,
-    assignments_by_series: dict[str, pd.DataFrame],
-    output_path: Path | str,
-    dataset_key: str | None = None,
-) -> pd.DataFrame:
-    """Create or update an hourly CSV with `*_cluster` columns per series.
-
-    Parameters
-    ----------
-    source_path:
-        Base hourly CSV (for example `holiday_demand_mx.csv`).
-    assignments_by_series:
-        Mapping `{unique_id: df_selector_clusters}` where each DataFrame must
-        contain `date` and `analog_cluster`.
-    output_path:
-        Path of the output CSV to create/update.
-    dataset_key:
-        Optional dataset key used only to format short region labels.
-
-    Returns
-    -------
-    pd.DataFrame
-        Hourly table with one extra `*_cluster` column per provided series.
-    """
-    from .dataset_config import format_region_label
-
-    source_path = Path(source_path)
-    output_path = Path(output_path)
-
-    df_source = pd.read_csv(source_path, parse_dates=['ds'])
-    cluster_columns = []
-    if output_path.exists():
-        df_existing = pd.read_csv(output_path, parse_dates=['ds'])
-        cluster_columns = [col for col in df_existing.columns if col.endswith('_cluster')]
-        df_out = df_source.merge(
-            df_existing[['ds', *cluster_columns]],
-            on='ds',
-            how='left',
-            validate='one_to_one',
-        )
-    else:
-        df_out = df_source.copy()
-
-    df_out['_date_norm'] = pd.to_datetime(df_out['ds']).dt.normalize()
-
-    for unique_id, df_assignments in assignments_by_series.items():
-        if 'date' not in df_assignments.columns or 'analog_cluster' not in df_assignments.columns:
-            raise ValueError(
-                f'Assignments for {unique_id!r} must contain date and analog_cluster columns.'
-            )
-
-        short_label = format_region_label(unique_id, dataset_key=dataset_key)
-        cluster_col = f'{short_label}_cluster'
-        date_cluster_map = dict(zip(
-            pd.to_datetime(df_assignments['date']).dt.normalize(),
-            df_assignments['analog_cluster'],
-        ))
-        df_out[cluster_col] = df_out['_date_norm'].map(date_cluster_map)
-
-    df_out = df_out.drop(columns=['_date_norm'])
-    df_out.to_csv(output_path, index=False)
-    return df_out

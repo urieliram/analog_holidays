@@ -86,7 +86,12 @@ def list_dataset_regions(dataset_key: str | None = None) -> list[str]:
     config = get_dataset_config(dataset_key)
     columns = _read_csv_columns(config.demand_path)
     if columns:
-        return [col for col in columns if col != "ds"]
+        return [
+            col for col in columns
+            if col != "ds"
+            and not col.endswith("_holiday")
+            and not col.endswith("_cluster")
+        ]
     return list(config.default_regions)
 
 

@@ -1,0 +1,18 @@
+anchor_holiday_name,holiday_day_type,history_rows,history_years,inferred_best_matching_weekday,inferred_daily_profile_cluster,inferred_daily_profile_cluster_id,inferred_daily_profile_archetype,inferred_event_profile_cluster,inferred_event_profile_cluster_id
+Benito Juarez's Birthday,H2,4,4,Saturday,B,1,Saturday-like,E,2
+Christmas Day,H2,4,4,Sunday,A,0,Sunday-like,D,1
+Christmas Day,H4,4,4,Sunday,A,0,Sunday-like,D,1
+Christmas Eve,H1,4,4,Saturday,B,1,Saturday-like,E,2
+Constitution Day,H2,4,4,Saturday,B,1,Saturday-like,E,2
+Good Friday,H2,4,4,Sunday,A,0,Sunday-like,E,2
+Holy Saturday,H3,4,4,Saturday,B,1,Saturday-like,E,2
+Holy Saturday,H4,4,4,Saturday,B,1,Saturday-like,E,2
+Independence Day,H2,4,4,Sunday,A,0,Sunday-like,C,0
+Labor Day,H2,4,4,Sunday,A,0,Sunday-like,C,0
+Maundy Thursday,H1,4,4,Saturday,B,1,Saturday-like,C,0
+Mexican Revolution Day,H2,4,4,Saturday,B,1,Saturday-like,E,2
+New Year's Day,H2,1,1,Sunday,A,0,Sunday-like,D,1
+New Year's Day,H3,2,2,Sunday,A,0,Sunday-like,D,1
+New Year's Day,H4,2,2,Sunday,A,0,Sunday-like,D,1
+New Year's Eve,H1,2,2,Saturday,A,0,Saturday-like,D,1
+New Year's Eve,H2,2,2,Saturday,B,1,Saturday-like,E,2

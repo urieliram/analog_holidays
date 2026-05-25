@@ -1,58 +1,88 @@
-holiday_name,anchor_holiday_name,date,holiday_day_type,weekday_name,day_class_code,day_class_name,season,date_rule,is_fixed_date,is_observed_monday_rule,best_matching_weekday,daily_profile_cluster,daily_profile_cluster_id,daily_profile_archetype,event_profile_cluster,event_profile_cluster_id
-Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Wednesday,B,1,Saturday-like,D,1
-Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0,Sunday-like,E,2
-Good Friday,Good Friday,2020-04-10,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2
-Holy Saturday,Holy Saturday,2020-04-11,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,A,0,Sunday-like,E,2
-Post-holiday recovery,Holy Saturday,2020-04-12,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,
-Labor Day,Labor Day,2020-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,E,2
-Independence Day,Independence Day,2020-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0
-Mexican Revolution Day,Mexican Revolution Day,2020-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Christmas Eve,Christmas Eve,2020-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
-Christmas Day,Christmas Day,2020-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-Post-holiday recovery,Christmas Day,2020-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,,,,,,
-New Year's Eve,New Year's Eve,2020-12-31,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
-New Year's Day,New Year's Day,2021-01-01,H3,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-Post-holiday recovery,New Year's Day,2021-01-02,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,,,,,,
-Constitution Day,Constitution Day,2021-02-01,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Benito Juarez's Birthday,Benito Juarez's Birthday,2021-03-15,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Maundy Thursday,Maundy Thursday,2021-04-01,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0
-Good Friday,Good Friday,2021-04-02,H2,Friday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0,Sunday-like,E,2
-Holy Saturday,Holy Saturday,2021-04-03,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Tuesday,B,1,Saturday-like,E,2
-Post-holiday recovery,Holy Saturday,2021-04-04,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,
-Labor Day,Labor Day,2021-05-01,H2,Saturday,2,Saturday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0
-Independence Day,Independence Day,2021-09-16,H2,Thursday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0
-Mexican Revolution Day,Mexican Revolution Day,2021-11-15,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Christmas Eve,Christmas Eve,2021-12-24,H1,Friday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
-Christmas Day,Christmas Day,2021-12-25,H2,Saturday,2,Saturday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-Post-holiday recovery,Christmas Day,2021-12-26,H4,Sunday,3,Sunday,Winter,derived_recovery_day,False,False,,,,,,
-New Year's Eve,New Year's Eve,2021-12-31,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
-New Year's Day,New Year's Day,2023-01-01,H2,Sunday,3,Sunday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,,
-Constitution Day,Constitution Day,2023-02-06,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Benito Juarez's Birthday,Benito Juarez's Birthday,2023-03-20,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2
-Maundy Thursday,Maundy Thursday,2023-04-06,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0
-Good Friday,Good Friday,2023-04-07,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2
-Holy Saturday,Holy Saturday,2023-04-08,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,E,2
-Post-holiday recovery,Holy Saturday,2023-04-09,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,
-Labor Day,Labor Day,2023-05-01,H2,Monday,1,Weekday,Spring,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
-Independence Day,Independence Day,2023-09-16,H2,Saturday,2,Saturday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0
-Mexican Revolution Day,Mexican Revolution Day,2023-11-20,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2
-Christmas Eve,Christmas Eve,2023-12-24,H1,Sunday,3,Sunday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,E,2
-Christmas Day,Christmas Day,2023-12-25,H2,Monday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-Post-holiday recovery,Christmas Day,2023-12-26,H4,Tuesday,1,Weekday,Winter,derived_recovery_day,False,False,,,,,,
-New Year's Eve,New Year's Eve,2023-12-31,H1,Sunday,3,Sunday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-New Year's Day,New Year's Day,2024-01-01,H3,Monday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-Post-holiday recovery,New Year's Day,2024-01-02,H4,Tuesday,1,Weekday,Winter,derived_recovery_day,False,False,,,,,,
-Constitution Day,Constitution Day,2024-02-05,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2
-Benito Juarez's Birthday,Benito Juarez's Birthday,2024-03-18,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2
-Maundy Thursday,Maundy Thursday,2024-03-28,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0
-Good Friday,Good Friday,2024-03-29,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2
-Holy Saturday,Holy Saturday,2024-03-30,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Sunday,B,1,Saturday-like,E,2
-Post-holiday recovery,Holy Saturday,2024-03-31,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,
-Labor Day,Labor Day,2024-05-01,H2,Wednesday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0
-Independence Day,Independence Day,2024-09-16,H2,Monday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0
-Mexican Revolution Day,Mexican Revolution Day,2024-11-18,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2
-Christmas Eve,Christmas Eve,2024-12-24,H1,Tuesday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
-Christmas Day,Christmas Day,2024-12-25,H2,Wednesday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1
-Post-holiday recovery,Christmas Day,2024-12-26,H4,Thursday,1,Weekday,Winter,derived_recovery_day,False,False,,,,,,
-New Year's Eve,New Year's Eve,2024-12-31,H2,Tuesday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2
+holiday_name,anchor_holiday_name,date,holiday_day_type,weekday_name,day_class_code,day_class_name,season,date_rule,is_fixed_date,is_observed_monday_rule,best_matching_weekday,daily_profile_cluster,daily_profile_cluster_id,daily_profile_archetype,event_profile_cluster,event_profile_cluster_id,analog_cluster
+Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Wednesday,B,1,Saturday-like,D,1,G
+Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0,Sunday-like,E,2,H
+Good Friday,Good Friday,2020-04-10,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2,H
+Holy Saturday,Holy Saturday,2020-04-11,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,A,0,Sunday-like,E,2,H
+Post-holiday recovery,Holy Saturday,2020-04-12,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,,H
+Labor Day,Labor Day,2020-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,E,2,H
+Independence Day,Independence Day,2020-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Mexican Revolution Day,Mexican Revolution Day,2020-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Christmas Eve,Christmas Eve,2020-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+Christmas Day,Christmas Day,2020-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,Christmas Day,2020-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,,,,,,,G
+New Year's Eve,New Year's Eve,2020-12-31,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+New Year's Day,New Year's Day,2021-01-01,H3,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,New Year's Day,2021-01-02,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,,,,,,,G
+Constitution Day,Constitution Day,2021-02-01,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Benito Juarez's Birthday,Benito Juarez's Birthday,2021-03-15,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Maundy Thursday,Maundy Thursday,2021-04-01,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0,F
+Good Friday,Good Friday,2021-04-02,H2,Friday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0,Sunday-like,E,2,H
+Holy Saturday,Holy Saturday,2021-04-03,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Tuesday,B,1,Saturday-like,E,2,H
+Post-holiday recovery,Holy Saturday,2021-04-04,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,,H
+Labor Day,Labor Day,2021-05-01,H2,Saturday,2,Saturday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Independence Day,Independence Day,2021-09-16,H2,Thursday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Mexican Revolution Day,Mexican Revolution Day,2021-11-15,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Christmas Eve,Christmas Eve,2021-12-24,H1,Friday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+Christmas Day,Christmas Day,2021-12-25,H2,Saturday,2,Saturday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,Christmas Day,2021-12-26,H4,Sunday,3,Sunday,Winter,derived_recovery_day,False,False,,,,,,,G
+New Year's Eve,New Year's Eve,2021-12-31,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+New Year's Day,New Year's Day,2023-01-01,H2,Sunday,3,Sunday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,,,G
+Constitution Day,Constitution Day,2023-02-06,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Benito Juarez's Birthday,Benito Juarez's Birthday,2023-03-20,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Maundy Thursday,Maundy Thursday,2023-04-06,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0,F
+Good Friday,Good Friday,2023-04-07,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2,H
+Holy Saturday,Holy Saturday,2023-04-08,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,E,2,H
+Post-holiday recovery,Holy Saturday,2023-04-09,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,,H
+Labor Day,Labor Day,2023-05-01,H2,Monday,1,Weekday,Spring,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+Independence Day,Independence Day,2023-09-16,H2,Saturday,2,Saturday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Mexican Revolution Day,Mexican Revolution Day,2023-11-20,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2,H
+Christmas Eve,Christmas Eve,2023-12-24,H1,Sunday,3,Sunday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,E,2,H
+Christmas Day,Christmas Day,2023-12-25,H2,Monday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,Christmas Day,2023-12-26,H4,Tuesday,1,Weekday,Winter,derived_recovery_day,False,False,,,,,,,G
+New Year's Eve,New Year's Eve,2023-12-31,H1,Sunday,3,Sunday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+New Year's Day,New Year's Day,2024-01-01,H3,Monday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,New Year's Day,2024-01-02,H4,Tuesday,1,Weekday,Winter,derived_recovery_day,False,False,,,,,,,G
+Constitution Day,Constitution Day,2024-02-05,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2,H
+Benito Juarez's Birthday,Benito Juarez's Birthday,2024-03-18,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2,H
+Maundy Thursday,Maundy Thursday,2024-03-28,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0,F
+Good Friday,Good Friday,2024-03-29,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2,H
+Holy Saturday,Holy Saturday,2024-03-30,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Sunday,B,1,Saturday-like,E,2,H
+Post-holiday recovery,Holy Saturday,2024-03-31,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,,,,,,,H
+Labor Day,Labor Day,2024-05-01,H2,Wednesday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Independence Day,Independence Day,2024-09-16,H2,Monday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Mexican Revolution Day,Mexican Revolution Day,2024-11-18,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1,Saturday-like,E,2,H
+Christmas Eve,Christmas Eve,2024-12-24,H1,Tuesday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+Christmas Day,Christmas Day,2024-12-25,H2,Wednesday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,Christmas Day,2024-12-26,H4,Thursday,1,Weekday,Winter,derived_recovery_day,False,False,,,,,,,G
+New Year's Eve,New Year's Eve,2024-12-31,H2,Tuesday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+New Year's Day,New Year's Day,2025-01-01,H3,Wednesday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,New Year's Day,2025-01-02,H4,Thursday,1,Weekday,Winter,derived_recovery_day,False,False,Sunday,A,0,Sunday-like,D,1,G
+Constitution Day,Constitution Day,2025-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Benito Juarez's Birthday,Benito Juarez's Birthday,2025-03-17,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Maundy Thursday,Maundy Thursday,2025-04-17,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0,F
+Good Friday,Good Friday,2025-04-18,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2,H
+Holy Saturday,Holy Saturday,2025-04-19,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,E,2,H
+Post-holiday recovery,Holy Saturday,2025-04-20,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Saturday,B,1,Saturday-like,E,2,H
+Labor Day,Labor Day,2025-05-01,H2,Thursday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Independence Day,Independence Day,2025-09-16,H2,Tuesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Mexican Revolution Day,Mexican Revolution Day,2025-11-17,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Christmas Eve,Christmas Eve,2025-12-24,H1,Wednesday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+Christmas Day,Christmas Day,2025-12-25,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,Christmas Day,2025-12-26,H4,Friday,1,Weekday,Winter,derived_recovery_day,False,False,Sunday,A,0,Sunday-like,D,1,G
+New Year's Eve,New Year's Eve,2025-12-31,H1,Wednesday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0,Saturday-like,D,1,G
+New Year's Day,New Year's Day,2026-01-01,H3,Thursday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,New Year's Day,2026-01-02,H4,Friday,1,Weekday,Winter,derived_recovery_day,False,False,Sunday,A,0,Sunday-like,D,1,G
+Constitution Day,Constitution Day,2026-02-02,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Benito Juarez's Birthday,Benito Juarez's Birthday,2026-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Maundy Thursday,Maundy Thursday,2026-04-02,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,C,0,F
+Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0,Sunday-like,E,2,H
+Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,B,1,Saturday-like,E,2,H
+Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Saturday,B,1,Saturday-like,E,2,H
+Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0,Sunday-like,C,0,F
+Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1,Saturday-like,E,2,H
+Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H
+Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0,Sunday-like,D,1,G
+Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Sunday,A,0,Sunday-like,D,1,G
+New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1,Saturday-like,E,2,H

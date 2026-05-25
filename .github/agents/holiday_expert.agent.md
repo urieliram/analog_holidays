@@ -342,17 +342,14 @@ analog-space workflow and should be reused instead of duplicating notebook logic
 - `assign_holiday_selector_analog_clusters`
 - `identify_future_holiday_analog_cluster`
 - `get_historical_analog_pool`
-- `build_analog_cluster_source_table`
 
 ### Output table for downstream analog pipelines
 
-- The hourly source `holidays/holiday_demand_mx.csv` can be extended into
-  `holidays/holiday_demand_mx_analog_cluster.csv`.
-- That output preserves the original hourly rows and adds one `*_cluster` column
-  per series.
-- Examples for the MX dataset are:
-  - `SIN_cluster`
-  - `CEL_cluster`
+- The hourly source remains `holidays/holiday_demand_mx.csv`.
+- Daily analog-space labels are exported through
+  `holidays/holiday_selector_features.csv` in the `analog_cluster` column.
+- Downstream analog pipelines should read the selector lookup instead of adding
+  hourly `*_cluster` columns to the demand source.
   - `PEN_cluster`
   - `ORI_cluster`
 - Each hourly row for a holiday date carries the analog-space cluster label of the

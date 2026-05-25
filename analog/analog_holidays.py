@@ -25,11 +25,13 @@ import pandas as pd
 
 from .analog_special_days import AnalogSpecialDays, analog_special_days_core
 from analog_holidays.audit.data_loader import HOUR_COLS
+from analog_holidays.shared.identify_holidays import load_selector_cluster_lookup
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE_PATH = PACKAGE_ROOT / "audit" / "data"
 DEFAULT_LEVELS = [80, 95]
+DEFAULT_SELECTOR_FEATURES_PATH = PACKAGE_ROOT / "holidays" / "holiday_selector_features.csv"
 
 
 @dataclass
@@ -109,6 +111,12 @@ def _resolve_audit_source_path(source_path: Path | str) -> Path:
     if path.exists():
         if path.is_dir():
             return _find_latest_audit_csv(path)
+        if path.name == "holiday_demand_mx_analog_cluster.csv":
+            raise ValueError(
+                "holiday_demand_mx_analog_cluster.csv is no longer a valid historical "
+                "demand source. Use holiday_demand_mx.csv for demand history and "
+                "holiday_selector_features.csv for analog_cluster lookups."
+            )
         return path
 
     if path.suffix.lower() == ".csv" and path.name.startswith("holiday_audit_hourly_wide_"):
@@ -242,6 +250,57 @@ def build_special_day_daily_mask(
     return mask.astype(bool)
 
 
+def _resolve_selector_cluster_lookup(
+    selector_features_path: Path | str | None,
+    cluster_column: str,
+    match_target_cluster: bool,
+) -> Optional[dict[pd.Timestamp, object]]:
+    if not match_target_cluster:
+        return None
+
+    resolved_path = (
+        DEFAULT_SELECTOR_FEATURES_PATH
+        if selector_features_path is None else Path(selector_features_path)
+    )
+    return load_selector_cluster_lookup(resolved_path, cluster_column=cluster_column)
+
+
+def _get_target_cluster(
+    target_date: str | pd.Timestamp,
+    selector_cluster_lookup: Optional[dict[pd.Timestamp, object]],
+) -> object:
+    target_norm = pd.Timestamp(target_date).normalize()
+    target_cluster = (
+        pd.NA
+        if selector_cluster_lookup is None
+        else selector_cluster_lookup.get(target_norm, pd.NA)
+    )
+    if pd.isna(target_cluster):
+        raise ValueError(
+            f"No selector analog cluster was found for target_date={target_norm.date()}."
+        )
+    return target_cluster
+
+
+def _restrict_daily_mask_to_target_cluster(
+    mask: pd.Series,
+    df_region: pd.DataFrame,
+    target_date: str | pd.Timestamp,
+    selector_cluster_lookup: Optional[dict[pd.Timestamp, object]],
+) -> pd.Series:
+    target_cluster = _get_target_cluster(target_date, selector_cluster_lookup)
+    date_clusters = pd.to_datetime(df_region["date"]).dt.normalize().map(
+        selector_cluster_lookup or {}
+    )
+    restricted_mask = mask.astype(bool) & date_clusters.eq(target_cluster).fillna(False)
+    if int(restricted_mask.sum()) == 0:
+        raise ValueError(
+            f"No historical special days share analog cluster {target_cluster!r} "
+            f"before target_date={pd.Timestamp(target_date).normalize().date()}."
+        )
+    return restricted_mask.astype(bool)
+
+
 def run_analog_holidays(
     unique_id: str,
     target_date: str | pd.Timestamp,
@@ -260,6 +319,10 @@ def run_analog_holidays(
     max_events: Optional[int] = None,
     label_column: str = "label",
     expected_target_label: Optional[str] = "holiday",
+    selector_features_path: Path | str | None = None,
+    cluster_column: str = "analog_cluster",
+    match_target_cluster: bool = False,
+    selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
 ) -> AnalogHolidayRun:
     """Run a 24-hour AnalogSpecialDays forecast for a target date."""
     target_ts = pd.Timestamp(target_date)
@@ -291,6 +354,14 @@ def run_analog_holidays(
     if train_df.empty:
         raise ValueError(f"No history found for {unique_id} before {target_ts.date()}")
 
+    resolved_cluster_lookup = selector_cluster_lookup
+    if match_target_cluster and resolved_cluster_lookup is None:
+        resolved_cluster_lookup = _resolve_selector_cluster_lookup(
+            selector_features_path=selector_features_path,
+            cluster_column=cluster_column,
+            match_target_cluster=match_target_cluster,
+        )
+
     hourly_series = _flatten_daily_profiles(train_df)
     if len(hourly_series) < 2 * season_length + 1:
         raise ValueError(
@@ -305,6 +376,13 @@ def run_analog_holidays(
         include_outliers=include_outliers,
         label_column=label_column,
     )
+    if match_target_cluster:
+        special_day_daily_mask = _restrict_daily_mask_to_target_cluster(
+            special_day_daily_mask,
+            train_df,
+            target_ts,
+            resolved_cluster_lookup,
+        )
 
     special_day_hourly_mask = np.repeat(
         special_day_daily_mask.astype(float).to_numpy(),
@@ -416,6 +494,9 @@ def tune_analog_holidays_optuna(
     label_column: str = "label",
     typedist_choices: Optional[Sequence[str]] = None,
     typereg_choices: Optional[Sequence[str]] = None,
+    selector_features_path: Path | str | None = None,
+    cluster_column: str = "analog_cluster",
+    match_target_cluster: bool = False,
 ) -> AnalogHolidayOptunaResult:
     """Tune AnalogSpecialDays hyperparameters on historical special dates."""
     import importlib.util
@@ -426,6 +507,11 @@ def tune_analog_holidays_optuna(
     df = load_audit_source(source_path)
     df_region = _get_region_df(df, unique_id)
     complete_mask = _complete_day_mask(df_region)
+    selector_cluster_lookup = _resolve_selector_cluster_lookup(
+        selector_features_path=selector_features_path,
+        cluster_column=cluster_column,
+        match_target_cluster=match_target_cluster,
+    )
     history_df = df_region.loc[
         (df_region["date"] < train_end_ts) & complete_mask
     ].copy()
@@ -490,6 +576,8 @@ def tune_analog_holidays_optuna(
                 min_event_gap=min_event_gap,
                 max_events=max_events,
                 label_column=label_column,
+                selector_cluster_lookup=selector_cluster_lookup,
+                match_target_cluster=match_target_cluster,
             )
             eligible_dates.append(pd.Timestamp(candidate_date))
         except ValueError:
@@ -563,6 +651,8 @@ def tune_analog_holidays_optuna(
                         min_event_gap=min_event_gap,
                         max_events=max_events,
                         label_column=label_column,
+                        selector_cluster_lookup=selector_cluster_lookup,
+                        match_target_cluster=match_target_cluster,
                         dtw_window=dtw_window,
                     )
                 )
@@ -646,9 +736,17 @@ def run_analog_holidays_batch(
     max_events: Optional[int] = None,
     label_column: str = "label",
     expected_target_label: Optional[str] = None,
+    selector_features_path: Path | str | None = None,
+    cluster_column: str = "analog_cluster",
+    match_target_cluster: bool = False,
 ) -> AnalogHolidayBatchResult:
     """Run AnalogSpecialDays over a batch of target dates and summarize results."""
     target_items = _normalize_batch_target_items(target_dates)
+    selector_cluster_lookup = _resolve_selector_cluster_lookup(
+        selector_features_path=selector_features_path,
+        cluster_column=cluster_column,
+        match_target_cluster=match_target_cluster,
+    )
     runs: Dict[str, AnalogHolidayRun] = {}
     rows = []
 
@@ -672,6 +770,10 @@ def run_analog_holidays_batch(
                 max_events=max_events,
                 label_column=label_column,
                 expected_target_label=expected_target_label,
+                selector_features_path=selector_features_path,
+                cluster_column=cluster_column,
+                match_target_cluster=match_target_cluster,
+                selector_cluster_lookup=selector_cluster_lookup,
             )
             runs[target_date] = run
 
@@ -747,7 +849,8 @@ def _load_hourly_wide_csv(path: Path) -> pd.DataFrame:
         raise ValueError("Hourly audit CSV must include a 'ds' column")
 
     value_columns = [
-        col for col in raw_df.columns if col != "ds" and not col.endswith("_holiday")
+        col for col in raw_df.columns
+        if col != "ds" and not col.endswith("_holiday") and not col.endswith("_cluster")
     ]
     if not value_columns:
         raise ValueError("Hourly audit CSV does not contain any series columns")
@@ -1490,6 +1593,8 @@ def _evaluate_analog_holiday_fold(
     min_event_gap: Optional[int],
     max_events: Optional[int],
     label_column: str,
+    selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
+    match_target_cluster: bool = False,
     dtw_window: Optional[float] = None,
 ) -> dict[str, object]:
     """Evaluate a single historical special date as a tuning fold."""
@@ -1513,6 +1618,13 @@ def _evaluate_analog_holiday_fold(
         include_outliers=include_outliers,
         label_column=label_column,
     )
+    if match_target_cluster:
+        special_mask = _restrict_daily_mask_to_target_cluster(
+            special_mask,
+            train_df,
+            target_ts,
+            selector_cluster_lookup,
+        )
     if int(special_mask.sum()) == 0:
         raise ValueError(
             f"No prior special days exist before {target_ts.date()} to build analogs."
