@@ -1470,8 +1470,8 @@ def plot_batch_pair_sequences_grid(
         panel_title = (
             f"{label_text}\n"
             f"{date_pair_text}\n"
-            f"← contexto            ventana objetivo →\n"
-            f"{metrics_text}"
+            f"{metrics_text}\n"
+            f"← contexto            ventana objetivo →"
         )
 
         if run is None:
