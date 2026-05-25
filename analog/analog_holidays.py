@@ -1359,6 +1359,7 @@ def plot_batch_inference_grid(
         metric_parts = []
         mape_value = row.get("mape_window_pct", row.get("mape_24h_pct", np.nan))
         mae_value = row.get("mae_window", row.get("mae_24h", np.nan))
+        cluster_value = row.get("analog_cluster", pd.NA)
         if pd.notna(mape_value):
             metric_parts.append(f"MAPE {mape_value:.2f}%")
         if pd.notna(mae_value):
@@ -1367,8 +1368,9 @@ def plot_batch_inference_grid(
             metric_parts.append(f"k={int(row['k'])}")
 
         label_text = holiday_label or "unlabeled"
+        cluster_text = f"cluster={cluster_value}" if pd.notna(cluster_value) else "cluster=n/a"
         ax.set_title(
-            f"{target_date} | {label_text}\n" + " | ".join(metric_parts),
+            f"{target_date} | {label_text} | {cluster_text}\n" + " | ".join(metric_parts),
             fontsize=10,
         )
         ax.grid(alpha=0.2)
@@ -1446,17 +1448,20 @@ def plot_batch_pair_sequences_grid(
             k_val = metric_row.get("k", None)
             typereg_val = metric_row.get("typereg", "")
             typedist_val = metric_row.get("typedist", "")
+            cluster_val = metric_row.get("analog_cluster", pd.NA)
         else:
             mape_val = np.nan
             mae_val = np.nan
             k_val = getattr(run, "k", None) if run is not None else None
             typereg_val = getattr(run, "typereg", "") if run is not None else ""
             typedist_val = getattr(run, "typedist", "") if run is not None else ""
+            cluster_val = pd.NA
 
         mape_text = f"MAPE={mape_val:.2f}%" if np.isfinite(mape_val) else "MAPE=n/a"
         mae_text = f"MAE={mae_val:.2f}" if np.isfinite(mae_val) else "MAE=n/a"
         k_text = f"k={int(k_val)}" if k_val is not None and not (isinstance(k_val, float) and np.isnan(k_val)) else "k=n/a"
         metrics_text = f"{mape_text} | {mae_text} | {k_text} | {typereg_val} | {typedist_val}"
+        cluster_text = f"cluster={cluster_val}" if pd.notna(cluster_val) else "cluster=n/a"
 
         if run is not None:
             window_start = run.forecast_start.strftime("%m-%d %H:%M")
@@ -1468,7 +1473,7 @@ def plot_batch_pair_sequences_grid(
             date_pair_text = f"{prev_ts.date()}  |  {target_ts.date()}"
 
         panel_title = (
-            f"{label_text}\n"
+            f"{label_text} | {cluster_text}\n"
             f"{date_pair_text}\n"
             f"{metrics_text}\n"
             f"← contexto            ventana objetivo →"
