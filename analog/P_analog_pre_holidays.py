@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from .analog import AnalogKNN
+from .analog_special_days import AnalogSpecialDays
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +104,38 @@ def list_unique_ids(df: pd.DataFrame) -> list[str]:
     ]
 
 
+def _build_pre_holiday_mask(
+    df_hist: pd.DataFrame,
+    unique_id: str,
+    previously_w_hours: int,
+) -> np.ndarray:
+    """Binary mask aligned with ``df_hist``: 1 for hours in [holiday − previously_w_hours, holiday).
+
+    ``AnalogSpecialDays`` uses this mask to restrict X2 candidates to
+    windows that overlap with a historical pre-holiday period.
+    """
+    holiday_col = f"{unique_id}_holiday"
+    if holiday_col not in df_hist.columns:
+        raise ValueError(
+            f"Column '{holiday_col}' not found. "
+            "Source CSV must include '<uid>_holiday' flag columns."
+        )
+    df_h = df_hist[["ds", holiday_col]].copy()
+    df_h["_date"] = pd.to_datetime(df_h["ds"]).dt.normalize()
+    holiday_dates = (
+        df_h.groupby("_date")[holiday_col].max()
+        .loc[lambda s: s == 1]
+        .index
+    )
+    mask = np.zeros(len(df_hist), dtype=np.float64)
+    for d in holiday_dates:
+        pre_end = pd.Timestamp(d)
+        pre_start_dt = pre_end - pd.Timedelta(hours=previously_w_hours)
+        window = (df_hist["ds"] >= pre_start_dt) & (df_hist["ds"] < pre_end)
+        mask[window.to_numpy()] = 1.0
+    return mask
+
+
 # =====================================================================
 # Single forecast
 # =====================================================================
@@ -116,13 +148,33 @@ def run_analog_pre_holiday(
     previously_w_hours: int = 14,
     season_length: int = 24,
     k: int = 10,
-    tol: float = 0.8,
+    min_special_points: Optional[int] = None,
+    min_event_gap: Optional[int] = None,
+    max_events: Optional[int] = None,
     n_components: int = 3,
     typedist: str = "pearson",
     typereg: str = "PCR",
     holiday_label: Optional[str] = None,
 ) -> PreHolidayRun:
-    """Forecast the ``previously_w_hours`` window before ``target_date``."""
+    """Forecast the ``previously_w_hours`` window before ``target_date``.
+
+    Uses :class:`AnalogSpecialDays`: candidate X2 blocks are restricted to
+    historical windows that overlap with a pre-holiday period (hours in
+    ``[holiday − previously_w_hours, holiday)``), rather than selecting by
+    pure time-series similarity as in the classic ``AnalogKNN``.
+
+    Parameters
+    ----------
+    min_special_points:
+        Minimum number of pre-holiday hours required inside a 24-h X2 block
+        for it to be considered a valid candidate.  ``None`` defaults to
+        ``previously_w_hours`` (require the full pre-holiday window).
+    min_event_gap:
+        Minimum number of hours between the starts of two selected events.
+        ``None`` uses ``season_length``.
+    max_events:
+        Maximum number of historical pre-holiday events to use.
+    """
     if unique_id not in df_source.columns:
         raise KeyError(f"Series '{unique_id}' not in source CSV columns.")
 
@@ -131,7 +183,8 @@ def run_analog_pre_holiday(
     pre_start = pre_end - pd.Timedelta(hours=previously_w_hours)
 
     history_mask = df_source["ds"] < pre_start
-    history = df_source.loc[history_mask, unique_id].to_numpy(dtype=np.float64)
+    df_hist = df_source.loc[history_mask].copy()
+    history = df_hist[unique_id].to_numpy(dtype=np.float64)
     if np.isnan(history).any():
         history = pd.Series(history).interpolate(limit_direction="both").to_numpy()
 
@@ -141,15 +194,26 @@ def run_analog_pre_holiday(
             f"(have {len(history)}, need >= {2 * season_length + 1})."
         )
 
-    model = AnalogKNN(
+    effective_min_points = (
+        previously_w_hours if min_special_points is None else min_special_points
+    )
+    pre_holiday_mask = _build_pre_holiday_mask(
+        df_hist=df_hist,
+        unique_id=unique_id,
+        previously_w_hours=previously_w_hours,
+    )
+
+    model = AnalogSpecialDays(
         season_length=season_length,
         k=k,
-        tol=tol,
-        n_components=n_components,
         typedist=typedist,
+        n_components=n_components,
         typereg=typereg,
+        min_special_points=effective_min_points,
+        min_event_gap=min_event_gap,
+        max_events=max_events,
     )
-    model.fit(y=history)
+    model.fit(y=history, special_days=pre_holiday_mask)
     result = model.predict(h=previously_w_hours)
     forecast = np.asarray(result["mean"], dtype=np.float64)[:previously_w_hours]
     forecast_int = np.rint(forecast).astype(np.int64)
@@ -214,7 +278,9 @@ def run_analog_pre_holidays_batch(
     previously_w_hours: int = 14,
     season_length: int = 24,
     k: int = 10,
-    tol: float = 0.8,
+    min_special_points: Optional[int] = None,
+    min_event_gap: Optional[int] = None,
+    max_events: Optional[int] = None,
     n_components: int = 3,
     typedist: str = "pearson",
     typereg: str = "PCR",
@@ -224,8 +290,9 @@ def run_analog_pre_holidays_batch(
 ) -> PreHolidayBatchResult:
     """Forecast pre-holiday windows for every (target_date, unique_id) pair.
 
-    A copy of the source CSV is written with the rounded integer forecast
-    values overwriting the pre-holiday rows of each series.
+    Uses :class:`AnalogSpecialDays`: candidate X2 blocks are restricted to
+    historical pre-holiday windows.  A copy of the source CSV is written with
+    the rounded integer forecast values overwriting the pre-holiday rows.
     """
     source_path = Path(source_path)
     df_source = load_pre_holiday_source(source_path)
@@ -252,7 +319,9 @@ def run_analog_pre_holidays_batch(
                     previously_w_hours=previously_w_hours,
                     season_length=season_length,
                     k=k,
-                    tol=tol,
+                    min_special_points=min_special_points,
+                    min_event_gap=min_event_gap,
+                    max_events=max_events,
                     n_components=n_components,
                     typedist=typedist,
                     typereg=typereg,
@@ -330,7 +399,9 @@ def run_analog_pre_holidays_batch(
         "previously_w_hours": previously_w_hours,
         "season_length": season_length,
         "k": k,
-        "tol": tol,
+        "min_special_points": min_special_points,
+        "min_event_gap": min_event_gap,
+        "max_events": max_events,
         "n_components": n_components,
         "typedist": typedist,
         "typereg": typereg,
@@ -374,9 +445,6 @@ def tune_analog_pre_holidays_optuna(
     train_end: str | pd.Timestamp = "2024-01-01",
     previously_w_hours: int = 14,
     season_length: int = 24,
-    initial_k: int = 10,
-    initial_typedist: str = "pearson",
-    initial_typereg: str = "PCR",
     initial_n_components: int = 3,
     n_trials: int = 25,
     timeout_sec: Optional[int] = 900,
@@ -433,23 +501,29 @@ def tune_analog_pre_holidays_optuna(
 
     def _evaluate_fold(target_date, k, typedist, typereg, n_components):
         pre_start = target_date - pd.Timedelta(hours=previously_w_hours)
-        history = df_source.loc[
-            df_source["ds"] < pre_start, unique_id
-        ].to_numpy(dtype=np.float64)
+        history_mask = df_source["ds"] < pre_start
+        df_hist = df_source.loc[history_mask].copy()
+        history = df_hist[unique_id].to_numpy(dtype=np.float64)
         if np.isnan(history).any():
             history = pd.Series(history).interpolate(limit_direction="both").to_numpy()
         actual = df_source.loc[
             (df_source["ds"] >= pre_start) & (df_source["ds"] < target_date),
             unique_id,
         ].to_numpy(dtype=np.float64)
-        model = AnalogKNN(
+        pre_holiday_mask = _build_pre_holiday_mask(
+            df_hist=df_hist,
+            unique_id=unique_id,
+            previously_w_hours=previously_w_hours,
+        )
+        model = AnalogSpecialDays(
             season_length=season_length,
             k=k,
             n_components=n_components,
             typedist=typedist,
             typereg=typereg,
+            min_special_points=previously_w_hours,
         )
-        model.fit(history)
+        model.fit(history, special_days=pre_holiday_mask)
         pred = np.asarray(
             model.predict(h=previously_w_hours)["mean"], dtype=np.float64
         )[:previously_w_hours]
@@ -614,6 +688,338 @@ def plot_pre_holiday_batch_grid(
             f"last {batch_result.config.get('previously_w_hours', '?')} h "
             f"before each holiday 00:00"
         )
+    fig.suptitle(title)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    return fig, axes
+
+
+# =====================================================================
+# Stage 2 — Holiday day (24 h) forecast from the curated source
+# =====================================================================
+
+
+@dataclass
+class HolidayDayRun:
+    """Single (unique_id, target_date) 24-h holiday-day forecast."""
+
+    unique_id: str
+    target_date: pd.Timestamp
+    holiday_label: Optional[str]
+    forecast: np.ndarray        # length 24
+    forecast_int: np.ndarray    # rounded integers
+    actual: Optional[np.ndarray]
+    history_length: int
+    fail: bool
+
+
+@dataclass
+class HolidayDayBatchResult:
+    """Aggregated Stage-2 results for all (target_date, unique_id) pairs."""
+
+    runs: Dict[Tuple[str, str], HolidayDayRun]
+    results_df: pd.DataFrame
+    output_path: Path
+    source_path: Path
+    config: Dict[str, object]
+
+
+def _build_holiday_day_mask(
+    df_hist: pd.DataFrame,
+    unique_id: str,
+) -> np.ndarray:
+    """Binary mask aligned with ``df_hist``: 1 for hours that belong to historical holiday days.
+
+    Uses the ``<uid>_holiday`` flag column directly — each hour already carries the
+    flag of its parent day, so no date-level expansion is necessary.
+    """
+    holiday_col = f"{unique_id}_holiday"
+    if holiday_col not in df_hist.columns:
+        raise ValueError(
+            f"Column '{holiday_col}' not found. "
+            "Source CSV must include '<uid>_holiday' flag columns."
+        )
+    return df_hist[holiday_col].fillna(0).to_numpy(dtype=np.float64)
+
+
+def run_holiday_day(
+    unique_id: str,
+    target_date: str | pd.Timestamp,
+    df_source: pd.DataFrame,
+    season_length: int = 24,
+    k: Optional[int] = 10,
+    min_special_points: Optional[int] = None,
+    min_event_gap: Optional[int] = None,
+    max_events: Optional[int] = None,
+    n_components: int = 3,
+    typedist: str = "pearson",
+    typereg: str = "PCR",
+    holiday_label: Optional[str] = None,
+) -> HolidayDayRun:
+    """Forecast the full 24-h holiday day using ``AnalogSpecialDays``.
+
+    Reads the curated Stage-1 source (``pre_holiday_demand_mx_*.csv``) so the
+    pre-holiday hours immediately before the holiday are already filled in.
+
+    Parameters
+    ----------
+    min_special_points:
+        Minimum number of holiday hours required inside a 24-h X2 block.
+        ``None`` defaults to ``season_length`` (require the full holiday day).
+    """
+    if unique_id not in df_source.columns:
+        raise KeyError(f"Series '{unique_id}' not in source CSV columns.")
+
+    target_ts = pd.Timestamp(target_date).normalize()
+    day_start = target_ts
+    day_end = day_start + pd.Timedelta(hours=season_length)
+
+    history_mask = df_source["ds"] < day_start
+    df_hist = df_source.loc[history_mask].copy()
+    history = df_hist[unique_id].to_numpy(dtype=np.float64)
+    if np.isnan(history).any():
+        history = pd.Series(history).interpolate(limit_direction="both").to_numpy()
+
+    if len(history) < 2 * season_length + 1:
+        raise ValueError(
+            f"Insufficient history for '{unique_id}' before {day_start} "
+            f"(have {len(history)}, need >= {2 * season_length + 1})."
+        )
+
+    effective_min_points = season_length if min_special_points is None else min_special_points
+    holiday_mask = _build_holiday_day_mask(df_hist, unique_id)
+
+    model = AnalogSpecialDays(
+        season_length=season_length,
+        k=k,
+        typedist=typedist,
+        n_components=n_components,
+        typereg=typereg,
+        min_special_points=effective_min_points,
+        min_event_gap=min_event_gap,
+        max_events=max_events,
+    )
+    model.fit(y=history, special_days=holiday_mask)
+    result = model.predict(h=season_length)
+    forecast = np.asarray(result["mean"], dtype=np.float64)[:season_length]
+    forecast_int = np.rint(forecast).astype(np.int64)
+
+    window_mask = (df_source["ds"] >= day_start) & (df_source["ds"] < day_end)
+    actual = None
+    if int(window_mask.sum()) == season_length:
+        candidate = df_source.loc[window_mask, unique_id].to_numpy(dtype=np.float64)
+        if not np.isnan(candidate).any():
+            actual = candidate
+
+    return HolidayDayRun(
+        unique_id=unique_id,
+        target_date=target_ts,
+        holiday_label=holiday_label,
+        forecast=forecast,
+        forecast_int=forecast_int,
+        actual=actual,
+        history_length=int(len(history)),
+        fail=False,
+    )
+
+
+def run_holiday_day_batch(
+    target_dates: Sequence,
+    source_path: Path | str,
+    unique_ids: Optional[Sequence[str]] = None,
+    season_length: int = 24,
+    k: Optional[int] = 10,
+    min_special_points: Optional[int] = None,
+    min_event_gap: Optional[int] = None,
+    max_events: Optional[int] = None,
+    n_components: int = 3,
+    typedist: str = "pearson",
+    typereg: str = "PCR",
+    output_dir: Optional[Path | str] = None,
+    output_path: Optional[Path | str] = None,
+    write_csv: bool = True,
+) -> HolidayDayBatchResult:
+    """Forecast 24-h holiday days for every (target_date, unique_id) pair.
+
+    Reads the Stage-1 curated source (pre-holiday hours already filled).  Writes
+    a copy named ``holiday_demand_mx_complete_<timestamp>.csv`` with the holiday-day
+    rows overwritten by the integer-rounded forecasts.
+    """
+    source_path = Path(source_path)
+    df_source = load_pre_holiday_source(source_path)
+
+    if unique_ids is None:
+        resolved_ids = list_unique_ids(df_source)
+    else:
+        resolved_ids = [str(u) for u in unique_ids]
+
+    target_items = _normalize_target_items(target_dates)
+    df_out = df_source.copy()
+    runs: Dict[Tuple[str, str], HolidayDayRun] = {}
+    rows: List[dict] = []
+
+    for target_ts, holiday_label in target_items:
+        date_key = target_ts.strftime("%Y-%m-%d")
+        day_end = target_ts + pd.Timedelta(hours=season_length)
+        for uid in resolved_ids:
+            try:
+                run = run_holiday_day(
+                    unique_id=uid,
+                    target_date=target_ts,
+                    df_source=df_source,
+                    season_length=season_length,
+                    k=k,
+                    min_special_points=min_special_points,
+                    min_event_gap=min_event_gap,
+                    max_events=max_events,
+                    n_components=n_components,
+                    typedist=typedist,
+                    typereg=typereg,
+                    holiday_label=holiday_label,
+                )
+            except Exception as exc:
+                rows.append({
+                    "target_date": target_ts,
+                    "holiday_label": holiday_label,
+                    "unique_id": uid,
+                    "fail": True,
+                    "error": str(exc),
+                    "mae": np.nan,
+                    "mape_pct": np.nan,
+                })
+                continue
+
+            runs[(date_key, uid)] = run
+
+            window_mask = (
+                (df_out["ds"] >= target_ts) & (df_out["ds"] < day_end)
+            )
+            n_match = int(window_mask.sum())
+            if n_match > 0:
+                df_out.loc[window_mask, uid] = run.forecast_int[:n_match]
+
+            mae = np.nan
+            mape = np.nan
+            if run.actual is not None:
+                diff = run.forecast - run.actual
+                mae = float(np.mean(np.abs(diff)))
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    denom = np.where(run.actual == 0, np.nan, run.actual)
+                    mape = float(np.nanmean(np.abs(diff / denom)) * 100.0)
+
+            rows.append({
+                "target_date": target_ts,
+                "holiday_label": holiday_label,
+                "unique_id": uid,
+                "fail": False,
+                "error": None,
+                "mae": mae,
+                "mape_pct": mape,
+                "hours_written": n_match,
+            })
+
+    results_df = pd.DataFrame(rows)
+
+    if output_path is not None:
+        resolved_output = Path(output_path)
+    else:
+        base_dir = Path(output_dir) if output_dir is not None else source_path.parent
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+        resolved_output = base_dir / f"holiday_demand_mx_complete_{timestamp}.csv"
+
+    if write_csv:
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        df_out.to_csv(resolved_output, index=False)
+
+    config = {
+        "season_length": season_length,
+        "k": k,
+        "min_special_points": min_special_points,
+        "min_event_gap": min_event_gap,
+        "max_events": max_events,
+        "n_components": n_components,
+        "typedist": typedist,
+        "typereg": typereg,
+        "unique_ids": resolved_ids,
+    }
+
+    return HolidayDayBatchResult(
+        runs=runs,
+        results_df=results_df,
+        output_path=resolved_output,
+        source_path=source_path,
+        config=config,
+    )
+
+
+# =====================================================================
+# Stage 2 — Plot helpers
+# =====================================================================
+
+
+def plot_holiday_day_run(run: HolidayDayRun, ax=None):
+    """Plot the 24-h holiday-day forecast (and actual if present)."""
+    import matplotlib.pyplot as plt
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(6, 3.5))
+
+    hours = np.arange(1, len(run.forecast) + 1)
+    ax.plot(hours, run.forecast, marker="o", label="forecast", color="tab:red", linewidth=1.5)
+    if run.actual is not None:
+        ax.plot(hours, run.actual, marker="x", label="actual", color="tab:blue", linewidth=1.5)
+
+    holiday_str = run.target_date.strftime("%Y-%m-%d")
+    label = run.holiday_label or holiday_str
+    ax.set_title(f"{run.unique_id}\n{label} ({holiday_str})", fontsize=9)
+    ax.set_xlabel("hour of day")
+    ax.set_ylabel("demand")
+    ax.set_xticks(hours)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best", fontsize=8)
+    return ax
+
+
+def plot_holiday_day_batch_grid(
+    batch_result: HolidayDayBatchResult,
+    unique_id: Optional[str] = None,
+    n_cols: int = 4,
+    figsize_per_panel: Tuple[float, float] = (5.5, 3.4),
+    title: Optional[str] = None,
+):
+    """Grid of 24-h holiday-day forecasts for one ``unique_id`` across all target dates."""
+    import matplotlib.pyplot as plt
+
+    if unique_id is None:
+        unique_id = batch_result.config.get("unique_ids", [None])[0]
+    if unique_id is None:
+        raise ValueError("No unique_id available to plot.")
+
+    selected = [
+        run for (date_key, uid), run in batch_result.runs.items()
+        if uid == unique_id
+    ]
+    selected.sort(key=lambda r: r.target_date)
+    if not selected:
+        raise ValueError(f"No runs found for unique_id='{unique_id}'.")
+
+    n = len(selected)
+    n_cols = max(1, int(n_cols))
+    n_rows = int(np.ceil(n / n_cols))
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(figsize_per_panel[0] * n_cols, figsize_per_panel[1] * n_rows),
+        squeeze=False,
+    )
+
+    for idx, run in enumerate(selected):
+        ax = axes[idx // n_cols][idx % n_cols]
+        plot_holiday_day_run(run, ax=ax)
+
+    for idx in range(n, n_rows * n_cols):
+        axes[idx // n_cols][idx % n_cols].axis("off")
+
+    if title is None:
+        title = f"Holiday-day (24 h) forecast | {unique_id}"
     fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     return fig, axes

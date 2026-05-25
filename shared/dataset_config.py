@@ -31,7 +31,7 @@ _DATASET_CONFIGS: dict[str, DatasetConfig] = {
     "mx": DatasetConfig(
         key="mx",
         display_name="Mexico",
-        demand_path=PROJ_ROOT / "data" / "demand_mx.csv",
+        demand_path=PROJ_ROOT / "analog_holidays" / "holidays" / "holiday_demand_mx.csv",
         notebook_holidays_path=PROJ_ROOT / "analog_holidays" / "holidays" / "holidays_recognized.json",
         audit_holidays_path=PROJ_ROOT / "data" / "holidays_mx.json",
         region_prefix="SEN_demand_",

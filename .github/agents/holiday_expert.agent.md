@@ -132,6 +132,47 @@ put it in H2 (because Dec 31 is H1, not H2).
 
 ---
 
+## Holiday Selector Feature Schema
+
+The notebook `M_identify_holidays.ipynb` builds a selector-ready table named
+`df_holiday_selector_features`. It is intended to describe each holiday or
+derived recovery day using both calendar rules and profile-based labels, so
+the analog workflow can filter or rank candidate analogs by context before
+distance ranking.
+
+### Column meanings
+
+| Column | Meaning | Typical values / source |
+|--------|---------|-------------------------|
+| `holiday_name` | Name assigned to the row itself. For H1/H2/H3 rows this is the holiday on that date. For H4 rows this is the synthetic label for the recovery day. | `Labor Day`, `Good Friday`, `Post-holiday recovery` |
+| `anchor_holiday_name` | Anchor holiday used to identify the event family behind the row. For H1/H2/H3 it matches `holiday_name`. For H4 it is the last holiday in the immediately preceding special-day run. | `Christmas Day`, `New Year's Day` |
+| `date` | Calendar date represented by the row. | `2020-05-01` |
+| `holiday_day_type` | H-day taxonomy label. `H1` = eve day, `H2` = core or standalone holiday, `H3` = consecutive post-holiday day, `H4` = first recovery day after a run of length >= 2. | `H1`, `H2`, `H3`, `H4` |
+| `weekday_name` | Literal weekday of `date`, independent of demand similarity. | `Monday`, `Saturday`, `Sunday` |
+| `day_class_code` | Compact labor-calendar code used by the selector. `1` = weekday, `2` = Saturday, `3` = Sunday. | `1`, `2`, `3` |
+| `day_class_name` | Expanded text version of `day_class_code`. | `Weekday`, `Saturday`, `Sunday` |
+| `season` | Meteorological season derived from the month. | `Winter`, `Spring`, `Summer`, `Autumn` |
+| `date_rule` | Calendar rule behind the date. `fixed_date` = fixed official date, `observed_monday_rule` = Monday-observed civic holiday after the 2006 labor reform, `movable_date` = Easter-based movable holiday, `derived_recovery_day` = synthetic H4 row. | `fixed_date`, `observed_monday_rule`, `movable_date`, `derived_recovery_day` |
+| `is_fixed_date` | Boolean helper flag for fixed-date observances. This is `True` for truly fixed holidays and also for pre-2006 years of Monday-observed civic holidays when they were still celebrated on their original fixed date. | `True`, `False` |
+| `is_observed_monday_rule` | Boolean helper flag for civic holidays shifted to Monday by the 2006 reform. | `True`, `False` |
+| `best_matching_weekday` | Best weekday match at the individual-day level, taken from the 8d per-day table (`best_dow`) and expanded to full weekday names. This is the closest weekday profile for that specific date, not the cluster-wide summary. | `Saturday`, `Sunday`, `Wednesday` |
+| `daily_profile_cluster` | DOW-agnostic letter for the daily-profile cluster coming from section 8c. It is derived from `daily_profile_cluster_id` in ascending numeric order, so current notebooks typically show `A`, `B`, etc. | `A`, `B`, `C` |
+| `daily_profile_cluster_id` | Raw numeric KMeans cluster id from section 8c (atypical daily profiles). | `0`, `1`, `2` |
+| `daily_profile_archetype` | Cluster-level weekday archetype inferred from section 8d (`cluster_type`). This is the human-readable interpretation of the cluster, such as `Saturday-like`, `Sunday-like`, or `unclear`. | `Saturday-like`, `Sunday-like`, `unclear` |
+| `event_profile_cluster` | DOW-agnostic letter for the 38-h event-profile cluster from section 8c-bis. Current notebooks typically show `C`, `D`, `E`, etc. | `C`, `D`, `E` |
+| `event_profile_cluster_id` | Raw numeric KMeans cluster id from section 8c-bis (38-h eve + holiday profile). | `0`, `1`, `2` |
+
+### Interpretation notes
+
+- `best_matching_weekday` is a per-date label, while `daily_profile_archetype` is a cluster-level label.
+- `daily_profile_cluster` / `daily_profile_cluster_id` come from the 24-h atypical-day analysis in section 8c.
+- `event_profile_cluster` / `event_profile_cluster_id` come from the 38-h eve+holiday analysis in section 8c-bis.
+- `H4` rows are derived automatically and may not have event-profile labels because the 38-h clustering is only defined for confirmed holiday dates.
+- Missing values in cluster-related columns are acceptable when a row was not part of the corresponding upstream analysis.
+- For future candidates, profile-based labels should first be inferred within the same `anchor_holiday_name` + `holiday_day_type` family and, if that subtype has no observed evidence, fall back to the broader `anchor_holiday_name` history.
+
+---
+
 ## Git / Repository Policies
 
 - **Branch for H1/H2/H3/H4 work**: `analog_holiday_H1_H2_H3`
@@ -151,3 +192,178 @@ put it in H2 (because Dec 31 is H1, not H2).
 4. Add to `H1_DATES`, `H2_DATES`, `H3_DATES` in the classification cell.
 5. Re-run the classification cell — H4 is computed automatically.
 6. Run `batch_result` and `plot_batch_inference_grid` to validate.
+
+---
+
+## Pre-Holiday Forecasting with AnalogSpecialDays (`Q_analog_pre_holidays`)
+
+### Objective
+Forecast the `PREVIOUSLY_W_HOURS` window immediately before each holiday (e.g., the
+14 hours before midnight of a holiday) using `AnalogSpecialDays` instead of `AnalogKNN`.
+
+### Why AnalogSpecialDays (not AnalogKNN) for pre-holidays
+`AnalogKNN` selects X/X2 pairs by pure similarity — it may pick analogs from ordinary
+days with no festive context.  `AnalogSpecialDays` restricts candidates to historical
+X/X2 pairs where **X2 is itself a pre-holiday window**, ensuring the model learns
+exclusively from past "approach-to-holiday" behavior.
+
+### Critical alignment rule: `season_length` must equal `previously_w_hours`
+
+This is the **most important parameter constraint** in the pre-holiday module.
+
+**Why the mismatch causes bad forecasts:**
+
+`AnalogSpecialDays` forms windows of size `season_length`.  The special-day mask marks
+the `previously_w_hours` hours before each historical holiday as `1`.
+
+When `season_length > previously_w_hours` (e.g., 24 vs 14):
+
+```
+mask: [0 0 0 0 0 0 0 0 0 0]  [1 1 1 1 1 1 1 1 1 1 1 1 1 1]  [0 ...]
+       ← normal hours →        ← pre-holiday 14 h →
+
+_select_special_positions finds up to (season_length − previously_w_hours + 1) = 11
+candidate positions per holiday, because a 24-h X2 window can contain the 14 marked
+hours starting at different offsets:
+
+  pos A → X2 = [Dec 31 00:00 .. 24:00)  pred[:14] = Dec 31 00:00..14:00  ✗ wrong hours
+  pos B → X2 = [Dec 31 05:00 .. 05:00)  pred[:14] = Dec 31 05:00..19:00  ✗ wrong hours
+  pos C → X2 = [Dec 31 10:00 .. 10:00)  pred[:14] = Dec 31 10:00..00:00  ✓ correct
+```
+
+The regression blends all these candidates → severely distorted forecast.
+
+**The fix — set `season_length = previously_w_hours`:**
+
+```
+mask: [1 1 1 1 1 1 1 1 1 1 1 1 1 1]  (14 consecutive ones)
+
+_select_special_positions with vsele=14 and min_special_points=14:
+  → exactly ONE candidate per holiday
+  X  = [D − 28h .. D − 14h)   ← 14h immediately before the pre-holiday window
+  X2 = [D − 14h .. D)         ← the pre-holiday window, perfectly aligned ✓
+```
+
+In the notebook (`Q_analog_pre_holidays.ipynb`):
+
+```python
+PREVIOUSLY_W_HOURS = 14
+SEASON_LENGTH = PREVIOUSLY_W_HOURS  # must be equal — do NOT set to 24
+```
+
+### Pre-holiday mask construction (`_build_pre_holiday_mask`)
+
+For each historical holiday `D` in `df_hist` (data before `pre_start`), the function
+marks `mask[i] = 1` for every hour `i` in `[D − previously_w_hours, D)`.  This mask is
+passed to `AnalogSpecialDays.fit(y=history, special_days=mask)`.
+
+### Information flow
+
+```
+holiday_demand_mx.csv  →  df_source (read-only)
+                       →  df_hist   (history before pre_start)
+                       →  _build_pre_holiday_mask → binary mask (same length as history)
+                       →  AnalogSpecialDays.fit(history, special_days=mask)
+                       →  .predict(h=previously_w_hours) → forecast_int
+                       →  df_out (copy of df_source, pre-holiday rows overwritten)
+                       →  pre_holiday_demand_mx_YYYY_MM_DD_HH_MM.csv  (NEW file, original untouched)
+```
+
+### Parameters specific to pre-holiday module
+
+| Parameter | Notebook var | Recommended | Notes |
+|-----------|-------------|-------------|-------|
+| `previously_w_hours` | `PREVIOUSLY_W_HOURS` | 14 | Width of pre-holiday forecast window |
+| `season_length` | `SEASON_LENGTH` | **= PREVIOUSLY_W_HOURS** | Must match to align X2 with pre-holiday window |
+| `min_special_points` | `MIN_SPECIAL_POINTS` | `None` → `previously_w_hours` | Require full pre-holiday coverage in X2 |
+| `min_event_gap` | `MIN_EVENT_GAP` | `None` → `season_length` | Min hours between selected events |
+| `max_events` | `MAX_EVENTS` | `None` | Cap on historical pre-holiday events used |
+
+### Source vs output files
+
+| File | Role |
+|------|------|
+| `holidays/holiday_demand_mx.csv` | **Read-only** source; never modified |
+| `holidays/pre_holiday_demand_mx_YYYY_MM_DD_HH_MM.csv` | Output; copy of source with pre-holiday rows overwritten by integer forecasts |
+
+---
+
+## Analog-Space Cluster Pipeline
+
+### Objective
+
+Before running analog forecasting for a future holiday candidate, the workflow may
+assign that candidate to an **analog-space cluster** and retrieve the compatible
+historical holidays belonging to the same analog pool.
+
+This logic is intended to be reused later in `Q_analog_pre_holidays.ipynb` and in
+future analog pipelines, so the identification helpers must live in `shared/`.
+
+### Stable output contract
+
+- The internal grouping criterion may change over time.
+- Examples of valid internal criteria are:
+  - `event_profile_cluster`
+  - `daily_profile_cluster`
+  - `best_matching_weekday`
+  - `daily_profile_archetype`
+- **What must not change** is the human-facing output contract:
+  - analog-space labels are stable letters `F`, `G`, `H`
+  - the future holiday candidate must be assigned to one of those analog clusters
+  - the historical pool used by the analog method must be the set of past members
+    in that same analog cluster
+
+### Current default rule
+
+- The current default internal criterion is `event_profile_cluster`.
+- In the present MX notebook workflow, `event_profile_cluster` comes from the 38-h
+  event-profile clustering (`C`, `D`, `E`).
+- Those internal labels are remapped to the stable analog-space labels `F`, `G`, `H`.
+- If a future criterion produces a different number of resolved groups, review the
+  remapping explicitly before using it in production.
+
+### Ex-ante identification of a future candidate
+
+- Some profile-based labels are not observed yet for a future holiday candidate.
+- Therefore, ex-ante identification must use the selector priors built from
+  historical evidence.
+- The inference order is:
+  1. infer within the same `anchor_holiday_name` + `holiday_day_type`
+  2. if unresolved, fall back to the broader `anchor_holiday_name` history
+- Once the internal criterion value is inferred, it is remapped to the stable
+  analog-space cluster label `F`, `G`, or `H`.
+
+### Shared helper functions
+
+The following functions in `shared/identify_holidays.py` implement the current
+analog-space workflow and should be reused instead of duplicating notebook logic:
+
+- `build_holiday_selector_priors`
+- `assign_holiday_selector_analog_clusters`
+- `identify_future_holiday_analog_cluster`
+- `get_historical_analog_pool`
+- `build_analog_cluster_source_table`
+
+### Output table for downstream analog pipelines
+
+- The hourly source `holidays/holiday_demand_mx.csv` can be extended into
+  `holidays/holiday_demand_mx_analog_cluster.csv`.
+- That output preserves the original hourly rows and adds one `*_cluster` column
+  per series.
+- Examples for the MX dataset are:
+  - `SIN_cluster`
+  - `CEL_cluster`
+  - `PEN_cluster`
+  - `ORI_cluster`
+- Each hourly row for a holiday date carries the analog-space cluster label of the
+  corresponding holiday day, using the stable output alphabet `F`, `G`, `H`.
+
+### Intended use in `Q_analog_pre_holidays.ipynb`
+
+- The future holiday candidate should first be classified into its analog-space
+  cluster using the shared helpers above.
+- The historical analog pool should then be restricted to the holidays belonging
+  to that same cluster.
+- The analog forecast step should operate on that filtered pool rather than on all
+  historical holidays mixed together.
+

@@ -762,6 +762,135 @@ def classify_holiday_weekend_type(
     }
 
 
+def run_holiday_ab_validation(
+    df_wide: pd.DataFrame,
+    df_holidays: pd.DataFrame,
+    outlier_dates_set: set,
+    hour_cols: list,
+    alpha: float = 0.10,
+    min_occurrences: int = 3,
+) -> dict:
+    """Run A/B weekend-type validation, display all results inline, and return key outputs.
+
+    Returns a dict with keys:
+        holiday_type_results  — raw output of classify_holiday_weekend_type
+        df_holiday_type_occ   — per-occurrence dataframe
+        df_holiday_type_summary — per-holiday summary dataframe
+        overall_ab_stats      — global statistics dict
+        holiday_type_map      — {holiday_name: 'A'/'B'} for decisive holidays
+    """
+    from IPython.display import display
+
+    holiday_type_results = classify_holiday_weekend_type(
+        df_wide=df_wide,
+        df_holidays=df_holidays,
+        outlier_dates_set=outlier_dates_set,
+        hour_cols=hour_cols,
+        alpha=alpha,
+        min_occurrences=min_occurrences,
+    )
+
+    df_holiday_type_occ = holiday_type_results['occurrences_df'].copy()
+    df_holiday_type_summary = holiday_type_results['summary_df'].copy()
+    overall_ab_stats = holiday_type_results['overall_stats']
+
+    df_summary_display = df_holiday_type_summary.copy()
+
+    print('Holiday A/B validation')
+    print(f"Occurrences evaluated: {overall_ab_stats.get('n_occurrences', 0)}")
+    print(f"Holidays with data: {overall_ab_stats.get('n_holidays', 0)}")
+    print(f"Global Wilcoxon p-value: {overall_ab_stats.get('overall_wilcoxon_pvalue', float('nan')):.4f}")
+    print(f"Global sign-test p-value: {overall_ab_stats.get('overall_sign_test_pvalue', float('nan')):.4f}")
+    print(f"Decision alpha: {overall_ab_stats.get('alpha', alpha):.2f}")
+
+    holiday_type_labels = {
+        'A': 'A - Saturday-like',
+        'B': 'B - Sunday-like',
+        'Mixed': 'Mixed / unclear',
+        'Insufficient': 'Insufficient data',
+    }
+    df_summary_display['holiday_type_label'] = (
+        df_summary_display['holiday_type']
+        .map(holiday_type_labels)
+        .fillna(df_summary_display['holiday_type'])
+    )
+
+    summary_columns = [
+        'holiday_name',
+        'holiday_type',
+        'holiday_type_label',
+        'n_occurrences',
+        'sat_like_votes',
+        'sun_like_votes',
+        'mixed_votes',
+        'mean_corr_sat',
+        'mean_corr_sun',
+        'median_delta_corr',
+        'wilcoxon_pvalue',
+        'sign_test_pvalue',
+        'decision',
+    ]
+    display(
+        df_summary_display[summary_columns]
+        .sort_values(['holiday_type', 'holiday_name'])
+        .reset_index(drop=True)
+    )
+
+    df_ab_list = (
+        df_summary_display[
+            df_summary_display['holiday_type'].isin(['A', 'B'])
+        ][
+            [
+                'holiday_name',
+                'holiday_type',
+                'holiday_type_label',
+                'n_occurrences',
+                'sat_like_votes',
+                'sun_like_votes',
+                'median_delta_corr',
+                'wilcoxon_pvalue',
+                'sign_test_pvalue',
+            ]
+        ]
+        .sort_values(['holiday_type', 'holiday_name'])
+        .reset_index(drop=True)
+    )
+
+    print('\nOperational A/B list by holiday')
+    display(df_ab_list)
+
+    holiday_type_map = dict(
+        zip(df_ab_list['holiday_name'], df_ab_list['holiday_type'])
+    )
+    print('HOLIDAY_TYPE_MAP =')
+    print(holiday_type_map)
+
+    occurrence_columns = [
+        'holiday_name',
+        'date',
+        'year',
+        'corr_sat',
+        'corr_sun',
+        'dist_sat',
+        'dist_sun',
+        'delta_corr_sat_minus_sun',
+        'occurrence_type',
+    ]
+    display(
+        df_holiday_type_occ[occurrence_columns]
+        .sort_values(['holiday_name', 'date'])
+        .reset_index(drop=True)
+    )
+
+    return {
+        'holiday_type_results': holiday_type_results,
+        'df_holiday_type_occ': df_holiday_type_occ,
+        'df_holiday_type_summary': df_holiday_type_summary,
+        'overall_ab_stats': overall_ab_stats,
+        'holiday_type_map': holiday_type_map,
+    }
+
+
 # Atypical-day clustering
 
 def cluster_atypical_profiles(
@@ -851,6 +980,361 @@ def cluster_atypical_profiles(
         'df_sim':         df_sim,
         'n_clusters':     n_clusters,
     }
+
+
+def run_cluster_atypical_analysis(
+    df_wide: pd.DataFrame,
+    match_dates_set: set,
+    unknown_dates_set: set,
+    outlier_dates_set: set,
+    n_clusters: int,
+    hour_cols: list,
+    df_holidays: pd.DataFrame,
+    cluster_colors: list,
+    unique_id: str,
+) -> dict:
+    """Cluster atypical profiles, display the similarity table, and plot.
+
+    Wraps cluster_atypical_profiles + plot_cluster_atypical so the notebook
+    cell is a single call.  Returns the full cluster_results dict.
+    """
+    from IPython.display import display
+
+    cluster_results = cluster_atypical_profiles(
+        df_wide,
+        match_dates_set,
+        unknown_dates_set,
+        outlier_dates_set,
+        n_clusters,
+        hour_cols,
+        df_holidays,
+    )
+    df_atyp = cluster_results['df_atyp']
+    df_sim = cluster_results['df_sim']
+    df_sim_display = df_sim.copy()
+
+    weekday_reference_columns = ['r vs Mon', 'r vs Tue', 'r vs Wed', 'r vs Thu', 'r vs Fri']
+    weekend_reference_columns = ['r vs Sat', 'r vs Sun']
+    format_dict = {
+        col: '{:.3f}'
+        for col in weekday_reference_columns + weekend_reference_columns
+    }
+
+    def _row_cluster_style(row):
+        bg = cluster_colors[row.name % len(cluster_colors)]
+        return [f'background-color: {bg}44; color: black'] * len(row)
+
+    print('Similarity between each cluster centroid and the weekday reference profiles')
+    display(
+        df_sim_display.style
+        .apply(_row_cluster_style, axis=1)
+        .format(format_dict)
+    )
+
+    # --- per-cluster day list ---
+    df_hol_norm = df_holidays.copy()
+    df_hol_norm['date'] = pd.to_datetime(df_hol_norm['date']).dt.normalize()
+    date_to_holiday = dict(zip(df_hol_norm['date'], df_hol_norm['holiday_name']))
+
+    day_rows = []
+    for date_idx, row in df_atyp.iterrows():
+        d = pd.Timestamp(date_idx).normalize()
+        day_rows.append({
+            'cluster': int(row['cluster']),
+            'date': d,
+            'dow': d.day_name()[:3],
+            'type': row['profile_type'],
+            'holiday_name': date_to_holiday.get(d, '—'),
+        })
+    df_days = (
+        pd.DataFrame(day_rows)
+        .sort_values(['cluster', 'date'])
+        .reset_index(drop=True)
+    )
+
+    def _day_row_style(row):
+        bg = cluster_colors[int(row['cluster']) % len(cluster_colors)]
+        return [f'background-color: {bg}44; color: black'] * len(row)
+
+    print('\nDays per cluster')
+    display(
+        df_days.style
+        .apply(_day_row_style, axis=1)
+        .format({'date': lambda d: d.strftime('%Y-%m-%d')})
+        .hide(axis='index')
+    )
+
+    plot_cluster_atypical(cluster_results, df_atyp, hour_cols, cluster_colors, unique_id)
+
+    return cluster_results
+
+
+def classify_cluster_dow_type(
+    df_wide: pd.DataFrame,
+    df_atyp: pd.DataFrame,
+    outlier_dates_set: set,
+    hour_cols: list,
+    alpha: float = 0.10,
+) -> dict:
+    """Rank each cluster against all 7 day-of-week reference profiles.
+
+    For every day in each cluster the function computes its Pearson correlation
+    with every DOW reference centroid of the same month (Mon → Sun).  At cluster
+    level it ranks the 7 DOWs by mean correlation and runs a one-sided Wilcoxon
+    signed-rank test between the winner and the runner-up to assess whether the
+    top match is statistically unambiguous.
+
+    Returns
+    -------
+    dict with keys 'occurrences_df', 'summary_df', 'dow_labels'.
+    """
+    dow_labels  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    dow_indices = [  0,     1,     2,     3,     4,     5,     6   ]
+    occurrence_rows = []
+
+    for k in sorted(df_atyp['cluster'].unique()):
+        for h_date in sorted(df_atyp[df_atyp['cluster'] == k].index):
+            h_date = pd.Timestamp(h_date).normalize()
+            if h_date not in df_wide.index:
+                continue
+            profile = df_wide.loc[h_date, hour_cols].values.astype(float)
+            if np.isnan(profile).any():
+                continue
+
+            row: dict = {
+                'cluster': k,
+                'date': h_date,
+                'profile_type': (
+                    df_atyp.loc[h_date, 'profile_type']
+                    if h_date in df_atyp.index else '—'
+                ),
+            }
+            for dow_idx, dow_label in zip(dow_indices, dow_labels):
+                ref = centroid_dow_month(
+                    df_wide, h_date.month, dow_idx, outlier_dates_set, hour_cols,
+                )
+                row[f'corr_{dow_label}'] = (
+                    _safe_corr(profile, ref) if ref is not None else float('nan')
+                )
+
+            valid = {
+                d: row[f'corr_{d}']
+                for d in dow_labels
+                if np.isfinite(row.get(f'corr_{d}', float('nan')))
+            }
+            row['best_dow'] = max(valid, key=valid.get) if valid else None
+            occurrence_rows.append(row)
+
+    occurrences_df = pd.DataFrame(occurrence_rows)
+
+    summary_rows = []
+    for k, grp in occurrences_df.groupby('cluster', sort=True):
+        row_s: dict = {'cluster': k, 'n_days': int(len(grp))}
+
+        mean_corrs: dict[str, float] = {}
+        for d in dow_labels:
+            mc = float(np.nanmean(grp[f'corr_{d}']))
+            row_s[f'mean_corr_{d}'] = mc
+            mean_corrs[d] = mc
+
+        vote_counts = grp['best_dow'].value_counts()
+        for d in dow_labels:
+            row_s[f'votes_{d}'] = int(vote_counts.get(d, 0))
+
+        ranked   = sorted(dow_labels, key=lambda d: mean_corrs[d], reverse=True)
+        winner   = ranked[0]
+        runner   = ranked[1]
+        row_s['best_dow']      = winner
+        row_s['runner_up_dow'] = runner
+        row_s['gap_corr']      = round(mean_corrs[winner] - mean_corrs[runner], 4)
+
+        delta    = (grp[f'corr_{winner}'] - grp[f'corr_{runner}']).dropna().to_numpy(float)
+        non_zero = delta[np.abs(delta) > 1e-12]
+        wilcoxon_p = float('nan')
+        if len(non_zero) >= 2:
+            try:
+                wilcoxon_p = float(
+                    wilcoxon(non_zero, alternative='greater', zero_method='wilcox').pvalue
+                )
+            except ValueError:
+                pass
+
+        row_s['wilcoxon_pvalue'] = wilcoxon_p
+        significant = np.isfinite(wilcoxon_p) and wilcoxon_p < alpha
+        row_s['cluster_type'] = winner if significant else 'unclear'
+        if significant:
+            row_s['decision'] = f'{winner}-like  (Δr={row_s["gap_corr"]:.3f}, p={wilcoxon_p:.4f})'
+        else:
+            row_s['decision'] = (
+                f'{winner} / {runner} not distinguishable'
+                f'  (Δr={row_s["gap_corr"]:.3f}, p={wilcoxon_p:.4f})'
+            )
+        summary_rows.append(row_s)
+
+    return {
+        'occurrences_df': occurrences_df,
+        'summary_df':     pd.DataFrame(summary_rows),
+        'dow_labels':     dow_labels,
+    }
+
+
+def run_cluster_ab_validation(
+    df_wide: pd.DataFrame,
+    df_atyp: pd.DataFrame,
+    outlier_dates_set: set,
+    hour_cols: list,
+    cluster_colors: list,
+    alpha: float = 0.10,
+    df_holidays: pd.DataFrame | None = None,
+) -> dict:
+    """Rank each cluster against all 7 DOW profiles and display three tables.
+
+    Table 1 — mean Pearson correlation per DOW (heat-tinted; winner = green).
+    Table 2 — vote counts (how many days had each DOW as best match).
+    Table 3 — per-day detail with all 7 correlations.  If df_holidays is
+              provided, 'Confirmed holiday' in profile_type is replaced by
+              the actual holiday name.
+
+    Returns the dict produced by classify_cluster_dow_type.
+    """
+    from IPython.display import display
+
+    results        = classify_cluster_dow_type(df_wide, df_atyp, outlier_dates_set, hour_cols, alpha)
+    summary_df     = results['summary_df']
+    occurrences_df = results['occurrences_df']
+    dow_labels     = results['dow_labels']
+    corr_cols      = [f'mean_corr_{d}' for d in dow_labels]
+    vote_cols      = [f'votes_{d}'     for d in dow_labels]
+
+    def _row_bg(row):
+        bg = cluster_colors[int(row['cluster']) % len(cluster_colors)]
+        return [f'background-color: {bg}44; color: black'] * len(row)
+
+    # ── Table 1: mean correlation per DOW ────────────────────────────────────
+    sum1 = (
+        summary_df[['cluster', 'n_days'] + corr_cols
+                   + ['best_dow', 'runner_up_dow', 'gap_corr', 'wilcoxon_pvalue', 'decision']]
+        .rename(columns={f'mean_corr_{d}': d for d in dow_labels})
+    )
+    fmt1 = {d: '{:.3f}' for d in dow_labels}
+    fmt1.update({'gap_corr': '{:.3f}', 'wilcoxon_pvalue': '{:.4f}'})
+
+    print(f'Cluster DOW similarity  (alpha = {alpha})')
+    print('Mean Pearson r of each cluster against the 7 DOW reference profiles.\n')
+    display(
+        sum1.style
+        .apply(_row_bg, axis=1)
+        .highlight_max(subset=dow_labels, axis=1, color='#90EE90')
+        .format(fmt1)
+        .hide(axis='index')
+    )
+
+    # ── Table 2: votes per DOW ───────────────────────────────────────────────
+    sum2 = (
+        summary_df[['cluster', 'n_days'] + vote_cols + ['best_dow']]
+        .rename(columns={f'votes_{d}': d for d in dow_labels})
+    )
+    print('\nVote counts — best-matching DOW per day')
+    display(
+        sum2.style
+        .apply(_row_bg, axis=1)
+        .highlight_max(subset=dow_labels, axis=1, color='#90EE90')
+        .format({d: lambda v: str(int(v)) for d in dow_labels})
+        .hide(axis='index')
+    )
+
+    # ── Table 3: per-day detail ──────────────────────────────────────────────
+    corr_cols_occ = [f'corr_{d}' for d in dow_labels]
+    occ3 = (
+        occurrences_df[['cluster', 'date', 'profile_type', 'best_dow'] + corr_cols_occ]
+        .sort_values(['cluster', 'date'])
+        .reset_index(drop=True)
+        .copy()
+    )
+    if df_holidays is not None:
+        _hol = df_holidays.copy()
+        _hol['date'] = pd.to_datetime(_hol['date']).dt.normalize()
+        _date_to_name = dict(zip(_hol['date'], _hol['holiday_name']))
+        occ3['profile_type'] = occ3.apply(
+            lambda r: _date_to_name.get(r['date'], r['profile_type'])
+            if r['profile_type'] == 'Confirmed holiday' else r['profile_type'],
+            axis=1,
+        )
+    fmt3 = {'date': lambda d: d.strftime('%Y-%m-%d')}
+    fmt3.update({c: '{:.3f}' for c in corr_cols_occ})
+
+    print('\nPer-day detail')
+    display(
+        occ3.style
+        .apply(_row_bg, axis=1)
+        .highlight_max(subset=corr_cols_occ, axis=1, color='#90EE90')
+        .format(fmt3)
+        .hide(axis='index')
+    )
+
+    return results
+
+
+def display_cluster_holiday_crosstab(
+    df_atyp: pd.DataFrame,
+    df_holidays: pd.DataFrame,
+    cluster_colors: list,
+) -> pd.DataFrame:
+    """Pivot table: rows = holiday name, columns = cluster, values = day count.
+
+    Returns the pivot DataFrame (NaN where no days exist for that combination).
+    The styled table is displayed inline (Jupyter).
+    """
+    from IPython.display import display
+
+    df_hol = df_holidays.copy()
+    df_hol['date'] = pd.to_datetime(df_hol['date']).dt.normalize()
+    date_to_holiday = dict(zip(df_hol['date'], df_hol['holiday_name']))
+
+    df_cross = df_atyp[['cluster', 'profile_type']].copy()
+    df_cross.index = pd.to_datetime(df_cross.index).normalize()
+    df_cross['holiday_name'] = df_cross.index.map(date_to_holiday).fillna('— Unknown outlier')
+
+    counts = (
+        df_cross.groupby(['holiday_name', 'cluster'])
+        .size()
+        .rename('n')
+        .reset_index()
+    )
+
+    pivot = (
+        counts.pivot(index='holiday_name', columns='cluster', values='n')
+        .rename(columns=lambda c: f'Cluster {c}')
+        .sort_index()
+    )
+
+    def _fmt_cell(v):
+        return f'{int(v)}' if pd.notna(v) and v > 0 else '—'
+
+    def _col_style(df):
+        styles = pd.DataFrame('', index=df.index, columns=df.columns)
+        for col in df.columns:
+            try:
+                k = int(col.split()[-1])
+                bg = cluster_colors[k % len(cluster_colors)]
+                styles[col] = f'background-color: {bg}44; color: black'
+            except (ValueError, IndexError):
+                pass
+        return styles
+
+    print('Holiday × Cluster distribution')
+    print('Rows = holiday name   |   Columns = cluster (count of days)\n')
+    display(
+        pivot.style
+        .apply(_col_style, axis=None)
+        .format(_fmt_cell, na_rep='—')
+        .set_table_styles([
+            {'selector': 'th', 'props': [('text-align', 'center')]},
+            {'selector': 'td', 'props': [('text-align', 'center')]},
+        ])
+    )
+
+    return pivot
 
 
 # Bridge-day detection
@@ -1229,19 +1713,44 @@ def plot_cluster_atypical(
         ax.tick_params(labelsize=10)
         ax.legend(fontsize=9, loc='upper left')
 
+    import matplotlib.patches as mpatches
+
     ax_bar = axes[-1]
     x = np.arange(n_clusters)
     width = 0.25
-    ax_bar.bar(x - width, df_sim['r vs Sun'].values, width, color='#d62728', alpha=0.8, label='r vs Sun')
-    ax_bar.bar(x, df_sim['r vs Wed'].values, width, color='#2ca02c', alpha=0.8, label='r vs Wed')
-    ax_bar.bar(x + width, df_sim['r vs Sat'].values, width, color='#f4a0b0', alpha=0.8, label='r vs Sat')
-    ax_bar.axhline(0.95, color='gray', lw=1, ls='--', label='r=0.95')
+    ref_specs = [
+        ('r vs Sun', -width, '',   0.90),
+        ('r vs Wed',  0,     '//', 0.60),
+        ('r vs Sat', +width, '..', 0.35),
+    ]
+    for k in range(n_clusters):
+        c = cluster_colors[k % len(cluster_colors)]
+        for ref_key, offset, hatch, alpha in ref_specs:
+            ax_bar.bar(
+                x[k] + offset,
+                df_sim.loc[k, ref_key],
+                width,
+                color=c,
+                alpha=alpha,
+                hatch=hatch,
+                edgecolor='white',
+                linewidth=0.5,
+            )
+    ax_bar.axhline(0.95, color='gray', lw=1, ls='--')
     ax_bar.set_xticks(x)
     ax_bar.set_xticklabels([f'C{k}' for k in range(n_clusters)], fontsize=12)
+    for tick_label, k in zip(ax_bar.get_xticklabels(), range(n_clusters)):
+        tick_label.set_color(cluster_colors[k % len(cluster_colors)])
     ax_bar.set_ylim(0, 1.05)
     ax_bar.set_ylabel('Pearson r', fontsize=12)
     ax_bar.set_title('Similarity\nvs Sun / Wed / Sat', fontsize=13)
-    ax_bar.legend(fontsize=11)
+    hatch_legend = [
+        mpatches.Patch(facecolor='#888888', alpha=0.90, hatch='',   edgecolor='white', label='r vs Sun'),
+        mpatches.Patch(facecolor='#888888', alpha=0.60, hatch='//', edgecolor='white', label='r vs Wed'),
+        mpatches.Patch(facecolor='#888888', alpha=0.35, hatch='..', edgecolor='white', label='r vs Sat'),
+        mlines.Line2D([0], [0], color='gray', lw=1, ls='--', label='r = 0.95'),
+    ]
+    ax_bar.legend(handles=hatch_legend, fontsize=10)
     ax_bar.tick_params(labelsize=11)
 
     plt.tight_layout()
@@ -1380,3 +1889,1019 @@ def plot_bridges_timeline(
                fontsize=9, frameon=True, bbox_to_anchor=(0.5, -0.015))
     plt.tight_layout()
     plt.show()
+
+
+def run_cluster_38h_analysis(
+    df_wide: pd.DataFrame,
+    match_dates_set: set,
+    df_holidays_display: pd.DataFrame,
+    hour_cols: list,
+    cluster_colors: list,
+    unique_id: str,
+    n_clusters: int = 3,
+    previously_w_hours: int = 14,
+) -> dict:
+    """Cluster confirmed holidays by their 38-h event profile.
+
+    For each holiday D, builds a feature vector of length
+    ``previously_w_hours + 24`` by concatenating:
+      - the last ``previously_w_hours`` hours of the eve day (D-1)
+      - all 24 hours of the holiday day (D)
+
+    KMeans is applied to the standardised vectors.  Cluster labels are
+    DOW-agnostic letters (C, D, E, ...).
+
+    Parameters
+    ----------
+    df_wide:
+        Wide-format DataFrame with DatetimeIndex (one row per day) and
+        columns h0…h23 plus ``segment``.
+    match_dates_set:
+        Set of normalised Timestamps for confirmed holiday dates.
+    df_holidays_display:
+        DataFrame with at least ``date`` and ``holiday_name`` columns.
+    hour_cols:
+        List of 24 hour-column names in order, e.g. ``['h0', ..., 'h23']``.
+    cluster_colors:
+        List of hex colour strings; one per cluster (reused cyclically).
+    unique_id:
+        Series label used in plot titles.
+    n_clusters:
+        Number of KMeans clusters (default 3).
+    previously_w_hours:
+        Hours taken from the eve day (default 14, i.e. h10…h23).
+
+    Returns
+    -------
+    dict with keys:
+        ``df_phol``       – per-event DataFrame with cluster labels
+        ``df_days_phol``  – per-day table sorted by cluster/date
+        ``kmeans_phol``   – fitted KMeans object
+        ``centroids_phol``– (n_clusters, 38) centroid array
+        ``feat_cols``     – ordered list of the 38 feature column names
+    """
+    import matplotlib.pyplot as plt
+    from IPython.display import display
+
+    _CLUSTER_LABELS = list('CDEFGHIJ')
+
+    eve_hour_cols = hour_cols[-previously_w_hours:]
+    hol_hour_cols = hour_cols
+    feat_cols = (
+        [f'eve_{c}' for c in eve_hour_cols]
+        + [f'hol_{c}' for c in hol_hour_cols]
+    )
+
+    _date_to_name = dict(zip(
+        pd.to_datetime(df_holidays_display['date']).dt.normalize(),
+        df_holidays_display['holiday_name'],
+    ))
+
+    _wide_idx = set(df_wide.index.normalize())
+    rows = []
+    for d in sorted(match_dates_set):
+        eve = d - pd.Timedelta(days=1)
+        if eve not in _wide_idx:
+            continue
+        row_eve = df_wide.loc[df_wide.index.normalize() == eve].squeeze()
+        row_hol = df_wide.loc[df_wide.index.normalize() == d].squeeze()
+        eve_vals = row_eve[eve_hour_cols].values.astype(float)
+        hol_vals = row_hol[hol_hour_cols].values.astype(float)
+        if np.isnan(eve_vals).any() or np.isnan(hol_vals).any():
+            continue
+        rows.append({
+            'date': d,
+            'holiday_name': _date_to_name.get(d, str(d.date())),
+            **dict(zip([f'eve_{c}' for c in eve_hour_cols], eve_vals)),
+            **dict(zip([f'hol_{c}' for c in hol_hour_cols], hol_vals)),
+        })
+
+    df_phol = pd.DataFrame(rows).set_index('date')
+    print(f'Events with complete {previously_w_hours + 24}-h profile: {len(df_phol)}')
+
+    X = df_phol[feat_cols].values
+    X_scaled = StandardScaler().fit_transform(X)
+    kmeans_phol = KMeans(n_clusters=n_clusters, random_state=42, n_init=20).fit(X_scaled)
+    df_phol['cluster'] = kmeans_phol.labels_
+    df_phol['cluster_type'] = [_CLUSTER_LABELS[k] for k in kmeans_phol.labels_]
+
+    centroids_phol = np.array([
+        df_phol.loc[df_phol['cluster'] == k, feat_cols].values.mean(axis=0)
+        for k in range(n_clusters)
+    ])
+
+    day_rows = []
+    for d, row in df_phol.iterrows():
+        day_rows.append({'type': row['cluster_type'], 'date': d,
+                         'dow': d.day_name()[:3], 'holiday_name': row['holiday_name']})
+    df_days_phol = (
+        pd.DataFrame(day_rows)
+        .sort_values(['type', 'date'])
+        .reset_index(drop=True)
+    )
+
+    def _day_bg(row):
+        k = _CLUSTER_LABELS.index(row['type'])
+        return [f'background-color: {cluster_colors[k % len(cluster_colors)]}44; color: black'] * len(row)
+
+    print('\nDays per cluster')
+    display(df_days_phol.style
+            .apply(_day_bg, axis=1)
+            .format({'date': lambda d: d.strftime('%Y-%m-%d')})
+            .hide(axis='index'))
+
+    x_axis = list(range(-previously_w_hours, 24))
+    fig, axes = plt.subplots(1, n_clusters, figsize=(5.5 * n_clusters, 5), sharey=True)
+    if n_clusters == 1:
+        axes = [axes]
+    fig.suptitle(
+        f'38-h event profiles  (eve last {previously_w_hours} h + holiday 24 h)  |  {unique_id}',
+        fontsize=13, y=1.02)
+    for k, ax in enumerate(axes):
+        label = _CLUSTER_LABELS[k]
+        color = cluster_colors[k % len(cluster_colors)]
+        mask = df_phol['cluster'] == k
+        data = df_phol.loc[mask, feat_cols].values
+        for profile in data:
+            ax.plot(x_axis, profile, color=color, alpha=0.30, lw=0.9)
+        ax.plot(x_axis, centroids_phol[k], color=color, lw=3,
+                label=f'Centroid {label}', zorder=5)
+        ax.axvline(0, color='grey', ls='--', lw=0.9, label='midnight')
+        ax.set_title(f'Type {label}  (n={mask.sum()})', fontsize=12)
+        ax.set_xlabel('Hour relative to holiday start (h=0)', fontsize=10)
+        ax.set_xticks(range(-previously_w_hours, 24, 4))
+        if k == 0:
+            ax.set_ylabel(f'Demand [{unique_id}]', fontsize=10)
+        ax.legend(fontsize=9)
+    plt.tight_layout()
+    plt.show()
+
+    display_cluster_38h_crosstab(df_phol, cluster_colors, _CLUSTER_LABELS[:n_clusters])
+
+    return {
+        'df_phol': df_phol,
+        'df_days_phol': df_days_phol,
+        'kmeans_phol': kmeans_phol,
+        'centroids_phol': centroids_phol,
+        'feat_cols': feat_cols,
+    }
+
+
+def display_cluster_38h_crosstab(
+    df_phol: pd.DataFrame,
+    cluster_colors: list,
+    cluster_labels: list | None = None,
+) -> pd.DataFrame:
+    """Holiday × Cluster pivot table for the 38-h event-profile clustering.
+
+    Parameters
+    ----------
+    df_phol:
+        Output DataFrame from ``run_cluster_38h_analysis``; must contain
+        ``holiday_name`` and ``cluster_type`` columns.
+    cluster_colors:
+        List of hex colour strings; indexed by position of the letter label
+        in ``cluster_labels``.
+    cluster_labels:
+        Ordered list of cluster-type letters actually present (e.g. ['C','D','E']).
+        Defaults to the sorted unique values in ``df_phol['cluster_type']``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The pivot table (rows = holiday name, columns = cluster type letter).
+    """
+    from IPython.display import display as ipy_display
+
+    if cluster_labels is None:
+        cluster_labels = sorted(df_phol['cluster_type'].unique())
+
+    counts = (
+        df_phol.groupby(['holiday_name', 'cluster_type'])
+        .size()
+        .rename('n')
+        .reset_index()
+    )
+
+    pivot = (
+        counts.pivot(index='holiday_name', columns='cluster_type', values='n')
+        .reindex(columns=cluster_labels)
+        .sort_index()
+    )
+
+    def _fmt_cell(v):
+        return f'{int(v)}' if pd.notna(v) and v > 0 else '—'
+
+    def _col_style(df):
+        styles = pd.DataFrame('', index=df.index, columns=df.columns)
+        for col in df.columns:
+            try:
+                k = cluster_labels.index(col)
+                bg = cluster_colors[k % len(cluster_colors)]
+                styles[col] = f'background-color: {bg}44; color: black'
+            except (ValueError, IndexError):
+                pass
+        return styles
+
+    print('Holiday × Cluster  (38-h profiles)')
+    print('Rows = holiday name   |   Columns = cluster type (count of events)\n')
+    ipy_display(
+        pivot.style
+        .apply(_col_style, axis=None)
+        .format(_fmt_cell, na_rep='—')
+        .set_table_styles([
+            {'selector': 'th', 'props': [('text-align', 'center')]},
+            {'selector': 'td', 'props': [('text-align', 'center')]},
+        ])
+    )
+
+    return pivot
+
+
+_SELECTOR_DOW_NAME_MAP = {
+    'Mon': 'Monday',
+    'Tue': 'Tuesday',
+    'Wed': 'Wednesday',
+    'Thu': 'Thursday',
+    'Fri': 'Friday',
+    'Sat': 'Saturday',
+    'Sun': 'Sunday',
+}
+
+_SELECTOR_DAY_CLASS_MAP = {
+    1: 'Weekday',
+    2: 'Saturday',
+    3: 'Sunday',
+}
+
+_POST_HOLIDAY_RECOVERY_LABEL = 'Post-holiday recovery'
+
+_SELECTOR_SEASON_MAP = {
+    12: 'Winter', 1: 'Winter', 2: 'Winter',
+    3: 'Spring', 4: 'Spring', 5: 'Spring',
+    6: 'Summer', 7: 'Summer', 8: 'Summer',
+    9: 'Autumn', 10: 'Autumn', 11: 'Autumn',
+}
+
+
+def _load_selector_holiday_metadata(holidays_path: Path | str | None) -> dict[str, dict]:
+    """Return a holiday-name metadata map from the JSON catalog."""
+    if holidays_path is None:
+        return {}
+
+    with open(Path(holidays_path), 'r', encoding='utf-8') as file_obj:
+        payload = json.load(file_obj)
+
+    return {
+        holiday['name']: holiday
+        for holiday in payload.get('holidays', [])
+        if 'name' in holiday
+    }
+
+
+def _label_special_day_types(
+    special_dates: list[pd.Timestamp],
+    date_to_name: dict[pd.Timestamp, str],
+) -> dict[pd.Timestamp, str]:
+    """Classify special dates as H1, H2, or H3 using the project taxonomy."""
+    labels: dict[pd.Timestamp, str] = {}
+    special_set = set(special_dates)
+
+    for date_value in special_dates:
+        prev_date = date_value - pd.Timedelta(days=1)
+        next_date = date_value + pd.Timedelta(days=1)
+        if next_date in special_set and prev_date not in special_set:
+            labels[date_value] = 'H1'
+
+    for date_value in special_dates:
+        if date_value in labels:
+            continue
+
+        prev_date = date_value - pd.Timedelta(days=1)
+        prev_name = date_to_name.get(prev_date)
+
+        if (
+            date_value.month == 1
+            and date_value.day == 1
+            and prev_name == "New Year's Eve"
+        ):
+            labels[date_value] = 'H3'
+            continue
+
+        if prev_date in special_set and labels.get(prev_date) != 'H1':
+            labels[date_value] = 'H3'
+
+    for date_value in special_dates:
+        labels.setdefault(date_value, 'H2')
+
+    return labels
+
+
+def _build_selector_base_rows(
+    df_holidays: pd.DataFrame,
+    available_dates: set[pd.Timestamp],
+) -> pd.DataFrame:
+    """Create the base selector table, including derived H4 recovery days."""
+    df_base = df_holidays[['date', 'holiday_name']].copy()
+    df_base['date'] = pd.to_datetime(df_base['date']).dt.normalize()
+    df_base = (
+        df_base[df_base['date'].isin(available_dates)]
+        .drop_duplicates(subset=['date'])
+        .sort_values('date')
+        .reset_index(drop=True)
+    )
+
+    if df_base.empty:
+        return pd.DataFrame(
+            columns=['holiday_name', 'anchor_holiday_name', 'date', 'holiday_day_type']
+        )
+
+    special_dates = df_base['date'].tolist()
+    date_to_name = dict(zip(df_base['date'], df_base['holiday_name']))
+    day_type_map = _label_special_day_types(special_dates, date_to_name)
+    special_set = set(special_dates)
+
+    rows = [
+        {
+            'holiday_name': row['holiday_name'],
+            'anchor_holiday_name': row['holiday_name'],
+            'date': row['date'],
+            'holiday_day_type': day_type_map[row['date']],
+        }
+        for _, row in df_base.iterrows()
+    ]
+
+    idx = 0
+    while idx < len(special_dates):
+        run_start = run_end = special_dates[idx]
+        jdx = idx + 1
+        while jdx < len(special_dates) and special_dates[jdx] == run_end + pd.Timedelta(days=1):
+            run_end = special_dates[jdx]
+            jdx += 1
+
+        run_length = (run_end - run_start).days + 1
+        if run_length >= 2:
+            candidate = run_end + pd.Timedelta(days=1)
+            if candidate not in special_set and candidate in available_dates:
+                rows.append({
+                    'holiday_name': _POST_HOLIDAY_RECOVERY_LABEL,
+                    'anchor_holiday_name': date_to_name.get(run_end, _POST_HOLIDAY_RECOVERY_LABEL),
+                    'date': candidate,
+                    'holiday_day_type': 'H4',
+                })
+
+        idx = jdx
+
+    return pd.DataFrame(rows).sort_values(['date', 'holiday_name']).reset_index(drop=True)
+
+
+def _selector_date_rule(
+    holiday_name: str,
+    holiday_date: pd.Timestamp,
+    holiday_metadata: dict[str, dict],
+) -> tuple[str, bool, bool]:
+    """Return the observance-rule fields for the selector table."""
+    if holiday_name == _POST_HOLIDAY_RECOVERY_LABEL:
+        return 'derived_recovery_day', False, False
+
+    metadata = holiday_metadata.get(holiday_name, {})
+    observed_rule = metadata.get('observed_rule')
+    date_type = metadata.get('date_type')
+
+    if observed_rule and holiday_date.year >= _LFT_REFORM_YEAR:
+        return 'observed_monday_rule', False, True
+
+    if observed_rule and holiday_date.year < _LFT_REFORM_YEAR:
+        return 'fixed_date', True, False
+
+    if date_type == 'fixed':
+        return 'fixed_date', True, False
+
+    if date_type == 'movable':
+        return 'movable_date', False, False
+
+    return 'unknown', False, False
+
+
+def _selector_cluster_archetype(label: str | None) -> str | None:
+    """Expand a short DOW label such as Sat into a readable archetype."""
+    if label is None or pd.isna(label):
+        return None
+    if label == 'unclear':
+        return 'unclear'
+
+    weekday_name = _SELECTOR_DOW_NAME_MAP.get(str(label), str(label))
+    return f'{weekday_name}-like'
+
+
+def _selector_day_class_code(day_of_week: int) -> int:
+    """Return 1 for weekdays, 2 for Saturday, and 3 for Sunday."""
+    if day_of_week == 5:
+        return 2
+    if day_of_week == 6:
+        return 3
+    return 1
+
+
+def build_holiday_selector_features(
+    df_wide: pd.DataFrame,
+    df_holidays: pd.DataFrame,
+    cluster_ab_results: dict,
+    df_phol: pd.DataFrame,
+    holidays_path: Path | str | None = None,
+) -> pd.DataFrame:
+    """Build a selector-ready holiday feature table for the analog workflow.
+
+    The output combines:
+      - H1/H2/H3/H4 day typing
+      - calendar season
+      - weekday-vs-weekend code (1=Weekday, 2=Saturday, 3=Sunday)
+      - holiday observance rule (`fixed_date`, `observed_monday_rule`, `movable_date`)
+      - per-day best matching weekday from the 8d validation table
+      - daily-profile cluster labels from 8c (A, B, ...)
+      - 38-h event-profile cluster labels from 8c-bis (C, D, E, ...)
+
+    Parameters
+    ----------
+    df_wide:
+        Wide-format daily DataFrame whose index defines the dates available
+        in the notebook.
+    df_holidays:
+        Holiday catalog DataFrame with at least `date` and `holiday_name`.
+    cluster_ab_results:
+        Output dict from `run_cluster_ab_validation`; must contain
+        `occurrences_df` and `summary_df`.
+    df_phol:
+        Output DataFrame from `run_cluster_38h_analysis`.
+    holidays_path:
+        Optional path to `holidays_recognized.json` to recover the original
+        rule metadata behind each holiday.
+
+    Returns
+    -------
+    pd.DataFrame
+        Selector-ready feature table, one row per holiday/special day.
+    """
+    available_dates = set(pd.to_datetime(df_wide.index).normalize())
+    selector_df = _build_selector_base_rows(df_holidays, available_dates)
+
+    if selector_df.empty:
+        return selector_df
+
+    holiday_metadata = _load_selector_holiday_metadata(holidays_path)
+
+    occurrences_df = cluster_ab_results.get('occurrences_df', pd.DataFrame()).copy()
+    summary_df = cluster_ab_results.get('summary_df', pd.DataFrame()).copy()
+
+    if not occurrences_df.empty:
+        occurrences_df['date'] = pd.to_datetime(occurrences_df['date']).dt.normalize()
+        cluster_ids = sorted(pd.Series(occurrences_df['cluster']).dropna().astype(int).unique())
+        cluster_letters = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+        daily_cluster_map = {
+            cluster_id: cluster_letters[idx]
+            for idx, cluster_id in enumerate(cluster_ids)
+        }
+        summary_cluster_type_map = {}
+        if not summary_df.empty:
+            summary_cluster_type_map = dict(
+                zip(summary_df['cluster'], summary_df['cluster_type'])
+            )
+
+        daily_features = (
+            occurrences_df[['date', 'cluster', 'best_dow']]
+            .drop_duplicates(subset=['date'])
+            .rename(columns={'cluster': 'daily_profile_cluster_id'})
+        )
+        daily_features['daily_profile_cluster_id'] = daily_features['daily_profile_cluster_id'].astype('Int64')
+        daily_features['daily_profile_cluster'] = daily_features['daily_profile_cluster_id'].map(daily_cluster_map)
+        daily_features['best_matching_weekday'] = daily_features['best_dow'].map(
+            _SELECTOR_DOW_NAME_MAP
+        ).fillna(daily_features['best_dow'])
+        daily_features['daily_profile_archetype'] = daily_features['daily_profile_cluster_id'].map(
+            summary_cluster_type_map
+        ).map(_selector_cluster_archetype)
+        daily_features = daily_features[
+            [
+                'date',
+                'best_matching_weekday',
+                'daily_profile_cluster',
+                'daily_profile_cluster_id',
+                'daily_profile_archetype',
+            ]
+        ]
+    else:
+        daily_features = pd.DataFrame(
+            columns=[
+                'date',
+                'best_matching_weekday',
+                'daily_profile_cluster',
+                'daily_profile_cluster_id',
+                'daily_profile_archetype',
+            ]
+        )
+
+    if not df_phol.empty:
+        event_features = (
+            df_phol.reset_index()[['date', 'cluster', 'cluster_type']]
+            .copy()
+            .rename(columns={
+                'cluster': 'event_profile_cluster_id',
+                'cluster_type': 'event_profile_cluster',
+            })
+        )
+        event_features['date'] = pd.to_datetime(event_features['date']).dt.normalize()
+        event_features['event_profile_cluster_id'] = event_features['event_profile_cluster_id'].astype('Int64')
+        event_features = event_features.drop_duplicates(subset=['date'])
+    else:
+        event_features = pd.DataFrame(
+            columns=['date', 'event_profile_cluster', 'event_profile_cluster_id']
+        )
+
+    selector_df = selector_df.merge(daily_features, on='date', how='left')
+    selector_df = selector_df.merge(event_features, on='date', how='left')
+
+    selector_df['weekday_name'] = selector_df['date'].dt.day_name()
+    selector_df['day_class_code'] = selector_df['date'].dt.dayofweek.map(_selector_day_class_code)
+    selector_df['day_class_name'] = selector_df['day_class_code'].map(_SELECTOR_DAY_CLASS_MAP)
+    selector_df['season'] = selector_df['date'].dt.month.map(_SELECTOR_SEASON_MAP)
+
+    rule_fields = selector_df.apply(
+        lambda row: _selector_date_rule(
+            row['holiday_name'],
+            row['date'],
+            holiday_metadata,
+        ),
+        axis=1,
+        result_type='expand',
+    )
+    rule_fields.columns = ['date_rule', 'is_fixed_date', 'is_observed_monday_rule']
+    selector_df = pd.concat([selector_df, rule_fields], axis=1)
+
+    column_order = [
+        'holiday_name',
+        'anchor_holiday_name',
+        'date',
+        'holiday_day_type',
+        'weekday_name',
+        'day_class_code',
+        'day_class_name',
+        'season',
+        'date_rule',
+        'is_fixed_date',
+        'is_observed_monday_rule',
+        'best_matching_weekday',
+        'daily_profile_cluster',
+        'daily_profile_cluster_id',
+        'daily_profile_archetype',
+        'event_profile_cluster',
+        'event_profile_cluster_id',
+    ]
+
+    return selector_df[column_order].sort_values(['date', 'holiday_name']).reset_index(drop=True)
+
+
+def _selector_modal_value(values: pd.Series):
+    """Return the dominant non-null value of a selector column."""
+    valid = values.dropna()
+    if valid.empty:
+        return pd.NA
+
+    modes = valid.mode(dropna=True)
+    if len(modes) == 0:
+        return pd.NA
+
+    return modes.iloc[0]
+
+
+_ANALOG_CLUSTER_LABELS = list('FGHIJKLMNOPQRSTUVWXYZ')
+
+
+def _selector_group_modal_frame(
+    df_selector: pd.DataFrame,
+    group_cols: tuple[str, ...],
+    value_cols: list[str],
+) -> pd.DataFrame:
+    """Return the modal value of each selector column per grouping key."""
+    grouped = df_selector.groupby(list(group_cols), dropna=False, sort=True)
+    rows = []
+
+    for group_key, group_df in grouped:
+        if not isinstance(group_key, tuple):
+            group_key = (group_key,)
+
+        row = {col_name: group_key[idx] for idx, col_name in enumerate(group_cols)}
+        for col_name in value_cols:
+            row[col_name] = _selector_modal_value(group_df[col_name])
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame(columns=[*group_cols, *value_cols])
+
+    return pd.DataFrame(rows)
+
+
+def _build_selector_prior_row(
+    group_key: tuple,
+    group_cols: tuple[str, ...],
+    group_df: pd.DataFrame,
+    inferred_cols: list[str],
+    anchor_fallback_lookup: dict[str, dict],
+) -> dict:
+    """Build a single prior row with anchor-holiday fallback when needed."""
+    row = {col_name: group_key[idx] for idx, col_name in enumerate(group_cols)}
+    row['history_rows'] = int(len(group_df))
+    row['history_years'] = int(group_df['date'].dt.year.nunique()) if 'date' in group_df else pd.NA
+    row['prior_resolution_scope'] = 'family_day_type'
+
+    for col_name in inferred_cols:
+        value = _selector_modal_value(group_df[col_name])
+        if pd.isna(value):
+            anchor_name = row.get('anchor_holiday_name')
+            value = anchor_fallback_lookup.get(anchor_name, {}).get(col_name, pd.NA)
+            if pd.notna(value):
+                row['prior_resolution_scope'] = 'anchor_holiday_name'
+
+        row[f'inferred_{col_name}'] = value
+
+    unresolved = any(pd.isna(row[f'inferred_{col_name}']) for col_name in inferred_cols)
+    if unresolved:
+        row['prior_resolution_scope'] = 'partially_unresolved'
+
+    return row
+
+
+def build_holiday_selector_priors(
+    df_selector: pd.DataFrame,
+    group_cols: tuple[str, ...] = ('anchor_holiday_name', 'holiday_day_type'),
+) -> pd.DataFrame:
+    """Infer ex-ante selector labels from historical holiday families.
+
+    For a future candidate whose profile-based labels are not yet observed,
+    this helper assigns a prior label by taking the dominant historical value
+    within the same holiday family. By default, the family is defined by the
+    pair `(anchor_holiday_name, holiday_day_type)`.
+
+    Parameters
+    ----------
+    df_selector:
+        Selector table produced by ``build_holiday_selector_features``.
+    group_cols:
+        Columns that define the holiday family used to compute the prior.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per holiday family with inferred labels and support counts.
+    """
+    required_cols = set(group_cols)
+    missing_cols = required_cols - set(df_selector.columns)
+    if missing_cols:
+        raise ValueError(f'Missing required selector columns: {sorted(missing_cols)}')
+
+    inferred_cols = [
+        'best_matching_weekday',
+        'daily_profile_cluster',
+        'daily_profile_cluster_id',
+        'daily_profile_archetype',
+        'event_profile_cluster',
+        'event_profile_cluster_id',
+    ]
+
+    anchor_fallback_lookup: dict[str, dict] = {}
+    if 'anchor_holiday_name' in df_selector.columns:
+        anchor_modal_df = _selector_group_modal_frame(
+            df_selector,
+            ('anchor_holiday_name',),
+            inferred_cols,
+        )
+        anchor_fallback_lookup = {
+            row['anchor_holiday_name']: {
+                col_name: row[col_name]
+                for col_name in inferred_cols
+            }
+            for _, row in anchor_modal_df.iterrows()
+        }
+
+    summary_rows = []
+    grouped = df_selector.groupby(list(group_cols), dropna=False, sort=True)
+
+    for group_key, group_df in grouped:
+        if not isinstance(group_key, tuple):
+            group_key = (group_key,)
+
+        summary_rows.append(
+            _build_selector_prior_row(
+                group_key=group_key,
+                group_cols=group_cols,
+                group_df=group_df,
+                inferred_cols=inferred_cols,
+                anchor_fallback_lookup=anchor_fallback_lookup,
+            )
+        )
+
+    column_order = list(group_cols) + [
+        'history_rows',
+        'history_years',
+        'inferred_best_matching_weekday',
+        'inferred_daily_profile_cluster',
+        'inferred_daily_profile_cluster_id',
+        'inferred_daily_profile_archetype',
+        'inferred_event_profile_cluster',
+        'inferred_event_profile_cluster_id',
+    ]
+
+    return pd.DataFrame(summary_rows)[column_order].sort_values(list(group_cols)).reset_index(drop=True)
+
+
+def _resolve_analog_criterion_columns(criterion: str) -> tuple[str, str]:
+    """Return selector/prior columns used by the analog-cluster criterion."""
+    criterion_map = {
+        'event_profile_cluster': ('event_profile_cluster', 'inferred_event_profile_cluster'),
+        'daily_profile_cluster': ('daily_profile_cluster', 'inferred_daily_profile_cluster'),
+        'best_matching_weekday': ('best_matching_weekday', 'inferred_best_matching_weekday'),
+        'daily_profile_archetype': ('daily_profile_archetype', 'inferred_daily_profile_archetype'),
+    }
+
+    try:
+        return criterion_map[criterion]
+    except KeyError as exc:
+        valid = ', '.join(sorted(criterion_map))
+        raise ValueError(f'Unsupported analog criterion {criterion!r}. Options: {valid}') from exc
+
+
+def assign_holiday_selector_analog_clusters(
+    df_selector: pd.DataFrame,
+    df_priors: pd.DataFrame,
+    criterion: str = 'event_profile_cluster',
+    group_cols: tuple[str, ...] = ('anchor_holiday_name', 'holiday_day_type'),
+    cluster_labels: tuple[str, ...] = ('F', 'G', 'H'),
+) -> dict:
+    """Assign stable analog-cluster labels to historical selector rows.
+
+    The internal criterion can change over time (`event_profile_cluster`,
+    `daily_profile_cluster`, etc.), but the output analog-space labels remain
+    stable and human-facing (`F`, `G`, `H`, ...).
+
+    Parameters
+    ----------
+    df_selector:
+        Historical selector table.
+    df_priors:
+        Output of ``build_holiday_selector_priors``.
+    criterion:
+        Column family used to define the analog-space grouping.
+    group_cols:
+        Key used to merge priors back into the selector table.
+    cluster_labels:
+        Stable output labels. If there are more unique criterion groups than
+        provided labels, labels continue automatically as `I`, `J`, ...
+
+    Returns
+    -------
+    dict with keys:
+        ``df_selector_clusters``   – selector rows with analog-cluster columns
+        ``analog_cluster_catalog`` – mapping from internal criterion value to
+                                     stable analog label
+    """
+    selector_col, prior_col = _resolve_analog_criterion_columns(criterion)
+
+    missing_selector = set(group_cols) - set(df_selector.columns)
+    missing_priors = set(group_cols) - set(df_priors.columns)
+    if missing_selector:
+        raise ValueError(f'Missing selector columns: {sorted(missing_selector)}')
+    if missing_priors:
+        raise ValueError(f'Missing prior columns: {sorted(missing_priors)}')
+
+    df_clusters = df_selector.copy()
+    merge_cols = list(group_cols) + [prior_col]
+    df_clusters = df_clusters.merge(
+        df_priors[merge_cols].drop_duplicates(subset=list(group_cols)),
+        on=list(group_cols),
+        how='left',
+    )
+
+    resolved_values = df_clusters[selector_col].where(
+        df_clusters[selector_col].notna(),
+        df_clusters[prior_col],
+    )
+    df_clusters['analog_criterion'] = criterion
+    df_clusters['analog_criterion_value'] = resolved_values
+
+    counts = (
+        df_clusters.dropna(subset=['analog_criterion_value'])
+        .groupby('analog_criterion_value', dropna=False)
+        .agg(
+            n_rows=('date', 'size'),
+            n_anchor_holidays=('anchor_holiday_name', 'nunique'),
+        )
+        .reset_index()
+        .sort_values('analog_criterion_value')
+        .reset_index(drop=True)
+    )
+
+    label_pool = list(cluster_labels)
+    if len(counts) > len(label_pool):
+        label_pool.extend(_ANALOG_CLUSTER_LABELS[len(label_pool):len(counts)])
+    if len(counts) > len(label_pool):
+        raise ValueError('Not enough analog-cluster labels available for the resolved criterion groups.')
+
+    counts['analog_cluster'] = label_pool[: len(counts)]
+    analog_map = dict(zip(counts['analog_criterion_value'], counts['analog_cluster']))
+    df_clusters['analog_cluster'] = df_clusters['analog_criterion_value'].map(analog_map)
+
+    catalog = counts[[
+        'analog_cluster',
+        'analog_criterion_value',
+        'n_rows',
+        'n_anchor_holidays',
+    ]].copy()
+    catalog.insert(1, 'analog_criterion', criterion)
+
+    return {
+        'df_selector_clusters': df_clusters,
+        'analog_cluster_catalog': catalog,
+    }
+
+
+def identify_future_holiday_analog_cluster(
+    candidate: pd.Series | dict,
+    df_priors: pd.DataFrame,
+    criterion: str = 'event_profile_cluster',
+    group_cols: tuple[str, ...] = ('anchor_holiday_name', 'holiday_day_type'),
+    analog_cluster_catalog: pd.DataFrame | None = None,
+    cluster_labels: tuple[str, ...] = ('F', 'G', 'H'),
+) -> pd.Series:
+    """Assign an ex-ante analog cluster to a future holiday candidate."""
+    candidate_series = pd.Series(candidate).copy()
+    if 'anchor_holiday_name' not in candidate_series and 'holiday_name' in candidate_series:
+        candidate_series['anchor_holiday_name'] = candidate_series['holiday_name']
+
+    missing = [col_name for col_name in group_cols if col_name not in candidate_series or pd.isna(candidate_series[col_name])]
+    if missing:
+        raise ValueError(f'Candidate is missing required analog-key fields: {missing}')
+
+    selector_col, prior_col = _resolve_analog_criterion_columns(criterion)
+
+    prior_match = df_priors.copy()
+    for col_name in group_cols:
+        prior_match = prior_match[prior_match[col_name] == candidate_series[col_name]]
+
+    if prior_match.empty:
+        raise ValueError(
+            'No selector prior was found for the candidate. '
+            f'Expected a match on {list(group_cols)}.'
+        )
+
+    prior_row = prior_match.sort_values('history_rows', ascending=False).iloc[0]
+    for col_name in prior_row.index:
+        if col_name.startswith('inferred_') and col_name not in candidate_series.index:
+            candidate_series[col_name] = prior_row[col_name]
+
+    candidate_series['analog_criterion'] = criterion
+    candidate_series['analog_criterion_value'] = candidate_series.get(selector_col, pd.NA)
+    if pd.isna(candidate_series['analog_criterion_value']):
+        candidate_series['analog_criterion_value'] = candidate_series.get(prior_col, pd.NA)
+
+    if analog_cluster_catalog is None:
+        resolved_values = (
+            df_priors[prior_col]
+            .dropna()
+            .drop_duplicates()
+            .sort_values()
+            .tolist()
+        )
+        label_pool = list(cluster_labels)
+        if len(resolved_values) > len(label_pool):
+            label_pool.extend(_ANALOG_CLUSTER_LABELS[len(label_pool):len(resolved_values)])
+        analog_cluster_catalog = pd.DataFrame({
+            'analog_cluster': label_pool[: len(resolved_values)],
+            'analog_criterion': criterion,
+            'analog_criterion_value': resolved_values,
+        })
+
+    analog_map = dict(zip(
+        analog_cluster_catalog['analog_criterion_value'],
+        analog_cluster_catalog['analog_cluster'],
+    ))
+    candidate_series['analog_cluster'] = analog_map.get(candidate_series['analog_criterion_value'], pd.NA)
+    candidate_series['prior_resolution_scope'] = prior_row.get('prior_resolution_scope', pd.NA)
+
+    return candidate_series
+
+
+def get_historical_analog_pool(
+    candidate: pd.Series | dict,
+    df_selector: pd.DataFrame,
+    df_priors: pd.DataFrame,
+    criterion: str = 'event_profile_cluster',
+    group_cols: tuple[str, ...] = ('anchor_holiday_name', 'holiday_day_type'),
+    analog_cluster_catalog: pd.DataFrame | None = None,
+    history_end_date: pd.Timestamp | str | None = None,
+    cluster_labels: tuple[str, ...] = ('F', 'G', 'H'),
+) -> dict:
+    """Return the historical selector rows compatible with a future candidate."""
+    cluster_results = assign_holiday_selector_analog_clusters(
+        df_selector=df_selector,
+        df_priors=df_priors,
+        criterion=criterion,
+        group_cols=group_cols,
+        cluster_labels=cluster_labels,
+    )
+    df_selector_clusters = cluster_results['df_selector_clusters']
+    analog_cluster_catalog = (
+        cluster_results['analog_cluster_catalog']
+        if analog_cluster_catalog is None else analog_cluster_catalog
+    )
+
+    candidate_info = identify_future_holiday_analog_cluster(
+        candidate=candidate,
+        df_priors=df_priors,
+        criterion=criterion,
+        group_cols=group_cols,
+        analog_cluster_catalog=analog_cluster_catalog,
+        cluster_labels=cluster_labels,
+    )
+
+    pool_df = df_selector_clusters.copy()
+    if pd.notna(candidate_info.get('analog_cluster', pd.NA)):
+        pool_df = pool_df[pool_df['analog_cluster'] == candidate_info['analog_cluster']].copy()
+    else:
+        pool_df = pool_df.iloc[0:0].copy()
+
+    if history_end_date is not None and 'date' in pool_df.columns:
+        cutoff = pd.Timestamp(history_end_date).normalize()
+        pool_df = pool_df[pd.to_datetime(pool_df['date']).dt.normalize() < cutoff].copy()
+
+    if 'date' in pool_df.columns:
+        pool_df = pool_df.sort_values('date').reset_index(drop=True)
+
+    return {
+        'candidate': candidate_info,
+        'pool': pool_df,
+        'analog_cluster_catalog': analog_cluster_catalog,
+    }
+
+
+def build_analog_cluster_source_table(
+    source_path: Path | str,
+    assignments_by_series: dict[str, pd.DataFrame],
+    output_path: Path | str,
+    dataset_key: str | None = None,
+) -> pd.DataFrame:
+    """Create or update an hourly CSV with `*_cluster` columns per series.
+
+    Parameters
+    ----------
+    source_path:
+        Base hourly CSV (for example `holiday_demand_mx.csv`).
+    assignments_by_series:
+        Mapping `{unique_id: df_selector_clusters}` where each DataFrame must
+        contain `date` and `analog_cluster`.
+    output_path:
+        Path of the output CSV to create/update.
+    dataset_key:
+        Optional dataset key used only to format short region labels.
+
+    Returns
+    -------
+    pd.DataFrame
+        Hourly table with one extra `*_cluster` column per provided series.
+    """
+    from .dataset_config import format_region_label
+
+    source_path = Path(source_path)
+    output_path = Path(output_path)
+
+    df_source = pd.read_csv(source_path, parse_dates=['ds'])
+    cluster_columns = []
+    if output_path.exists():
+        df_existing = pd.read_csv(output_path, parse_dates=['ds'])
+        cluster_columns = [col for col in df_existing.columns if col.endswith('_cluster')]
+        df_out = df_source.merge(
+            df_existing[['ds', *cluster_columns]],
+            on='ds',
+            how='left',
+            validate='one_to_one',
+        )
+    else:
+        df_out = df_source.copy()
+
+    df_out['_date_norm'] = pd.to_datetime(df_out['ds']).dt.normalize()
+
+    for unique_id, df_assignments in assignments_by_series.items():
+        if 'date' not in df_assignments.columns or 'analog_cluster' not in df_assignments.columns:
+            raise ValueError(
+                f'Assignments for {unique_id!r} must contain date and analog_cluster columns.'
+            )
+
+        short_label = format_region_label(unique_id, dataset_key=dataset_key)
+        cluster_col = f'{short_label}_cluster'
+        date_cluster_map = dict(zip(
+            pd.to_datetime(df_assignments['date']).dt.normalize(),
+            df_assignments['analog_cluster'],
+        ))
+        df_out[cluster_col] = df_out['_date_norm'].map(date_cluster_map)
+
+    df_out = df_out.drop(columns=['_date_norm'])
+    df_out.to_csv(output_path, index=False)
+    return df_out

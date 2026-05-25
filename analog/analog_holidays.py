@@ -12,7 +12,9 @@ The forecasting logic stays unchanged once the source is normalized.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import math
+import shutil
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 import warnings
@@ -125,6 +127,60 @@ def _find_latest_audit_csv(directory: Path) -> Path:
             f"No holiday audit CSV files were found in: {directory}"
         )
     return candidates[-1]
+
+
+def prepare_audit_working_copy(
+    source_path: Path | str,
+    working_dir: Optional[Path | str] = None,
+    prefix: str = "holiday_audit_hourly_wide",
+    reuse_today: bool = True,
+) -> Path:
+    """Copy the canonical audit CSV to a timestamped working copy and return it.
+
+    The canonical file at ``source_path`` (a CSV or a directory containing the
+    latest ``holiday_audit_hourly_wide_*.csv``) is never modified. A local copy
+    is written to ``working_dir`` with name ``{prefix}_<YYYYMMDD_HHMMSS>.csv``.
+
+    Parameters
+    ----------
+    source_path
+        Canonical CSV file or directory holding ``holiday_audit_hourly_wide_*.csv``.
+    working_dir
+        Destination directory for the working copy. Defaults to
+        ``<package>/holidays/working/``. Created if missing.
+    prefix
+        File-name prefix for the working copy.
+    reuse_today
+        If True and a working copy created today (matching ``{prefix}_<YYYYMMDD>_*.csv``)
+        already exists in ``working_dir`` and has the same size as the canonical
+        source, reuse it instead of recopying.
+
+    Returns
+    -------
+    Path
+        Absolute path to the working copy.
+    """
+    canonical = _resolve_audit_source_path(source_path)
+
+    if working_dir is None:
+        working_dir = PACKAGE_ROOT / "holidays" / "working"
+    working_dir = Path(working_dir)
+    working_dir.mkdir(parents=True, exist_ok=True)
+
+    today = datetime.now().strftime("%Y%m%d")
+    if reuse_today:
+        same_day = sorted(
+            working_dir.glob(f"{prefix}_{today}_*.csv"), reverse=True
+        )
+        canonical_size = canonical.stat().st_size
+        for existing in same_day:
+            if existing.stat().st_size == canonical_size:
+                return existing.resolve()
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = working_dir / f"{prefix}_{timestamp}.csv"
+    shutil.copy2(canonical, dest)
+    return dest.resolve()
 
 
 def get_available_unique_ids(source_path: Path | str = DEFAULT_SOURCE_PATH) -> list[str]:
@@ -397,7 +453,6 @@ def tune_analog_holidays_optuna(
         "PLS",
         "RidgeReg",
         "LassoReg",
-        "BayesRidge",
         "RF",
         "Boosting",
     ] if typereg_choices is None else [str(choice) for choice in typereg_choices]
@@ -1132,18 +1187,55 @@ def plot_batch_pair_sequences_grid(
     )
     axes = np.atleast_1d(axes).ravel()
 
+    metrics_by_date = {}
+    if not batch_result.results_df.empty:
+        metrics_by_date = {
+            row["target_date"]: row
+            for _, row in batch_result.results_df.iterrows()
+        }
+
     for ax, (target_date, holiday_label) in zip(axes, batch_result.target_items):
         run = batch_result.runs.get(target_date)
+        target_ts = pd.Timestamp(target_date)
+        prev_ts = target_ts - pd.Timedelta(days=1)
+        date_pair_text = f"{prev_ts.date()}  |  {target_ts.date()}"
+        label_text = holiday_label or "sin etiqueta"
+
+        metric_row = metrics_by_date.get(target_date)
+        if metric_row is not None:
+            mape_val = metric_row.get("mape_24h_pct", np.nan)
+            mae_val = metric_row.get("mae_24h", np.nan)
+            k_val = metric_row.get("k", None)
+            typereg_val = metric_row.get("typereg", "")
+            typedist_val = metric_row.get("typedist", "")
+        else:
+            mape_val = np.nan
+            mae_val = np.nan
+            k_val = getattr(run, "k", None) if run is not None else None
+            typereg_val = getattr(run, "typereg", "") if run is not None else ""
+            typedist_val = getattr(run, "typedist", "") if run is not None else ""
+
+        mape_text = f"MAPE={mape_val:.2f}%" if np.isfinite(mape_val) else "MAPE=n/a"
+        mae_text = f"MAE={mae_val:.2f}" if np.isfinite(mae_val) else "MAE=n/a"
+        k_text = f"k={int(k_val)}" if k_val is not None and not (isinstance(k_val, float) and np.isnan(k_val)) else "k=n/a"
+        metrics_text = f"{mape_text} | {mae_text} | {k_text} | {typereg_val} | {typedist_val}"
+
+        panel_title = (
+            f"{label_text}\n"
+            f"{date_pair_text}\n"
+            f"← día previo            día objetivo →\n"
+            f"{metrics_text}"
+        )
+
         if run is None:
             ax.text(0.5, 0.5, "Run unavailable", ha="center", va="center", transform=ax.transAxes)
-            ax.set_title(f"{target_date}\n{holiday_label or 'sin etiqueta'}", fontsize=9)
+            ax.set_title(panel_title, fontsize=9)
             ax.axis("off")
             continue
 
         plot_analog_pair_sequences(run, ax=ax)
 
-        label_text = holiday_label or "sin etiqueta"
-        ax.set_title(f"{target_date} | {label_text}", fontsize=9, color="#ff8000")
+        ax.set_title(panel_title, fontsize=9, color="#ff8000")
         ax.set_xlabel("")
         ax.set_ylabel("")
 
