@@ -610,13 +610,12 @@ def tune_analog_holidays_optuna(
         resolved_typedist_choices = [str(choice) for choice in typedist_choices]
 
     # typereg_choices: full regressor menu by default; override via typereg_choices
-    # to restrict the search to a specific subset (e.g. ["PCR", "RF"]).
+    # to restrict the search to a specific subset (e.g. ["PCR", "Boosting"]).
     resolved_typereg_choices = [
         "PCR",
         "PLS",
         "RidgeReg",
         "LassoReg",
-        "RF",
         "Boosting",
     ] if typereg_choices is None else [str(choice) for choice in typereg_choices]
 
@@ -634,7 +633,15 @@ def tune_analog_holidays_optuna(
         .tolist()
     )
 
-    baseline_k = min(3, max(1, int(initial_k) if initial_k is not None else 3))
+    optuna_min_k = 3
+    available_special_days = int(special_mask_history.sum())
+    if available_special_days < optuna_min_k:
+        raise ValueError(
+            f"At least {optuna_min_k} labeled special days are required before the cutoff "
+            "to tune hyperparameters when k >= 3."
+        )
+
+    baseline_k = optuna_min_k
     eligible_dates: list[pd.Timestamp] = []
     for candidate_date in candidate_dates:
         try:
@@ -670,9 +677,9 @@ def tune_analog_holidays_optuna(
             "to tune hyperparameters."
         )
 
-    # Upper bound for k: at most as many candidates as labeled special days, capped
-    # at 24 to keep evaluation time reasonable.
-    optuna_max_k = max(1, min(int(special_mask_history.sum()), 24))
+    # Search bounds for k: lower bound fixed at 3; upper bound is the total
+    # number of labeled special days in the training window, capped at 24.
+    optuna_max_k = min(available_special_days, 24)
 
     def objective(trial) -> float:
         # ── Search grid ───────────────────────────────────────────────────────
@@ -685,9 +692,9 @@ def tune_analog_holidays_optuna(
         typedist = trial.suggest_categorical("typedist", resolved_typedist_choices)
 
         # k         – number of nearest special-day analogs to keep.
-        #             Upper bound is the total number of labeled special days in
-        #             the training window, capped at 24.
-        k = trial.suggest_int("k", 1, optuna_max_k)
+        #             Lower bound is fixed at 3; upper bound is the total number
+        #             of labeled special days in the training window, capped at 24.
+        k = trial.suggest_int("k", optuna_min_k, optuna_max_k)
 
         # n_components – latent dimensions for PCR / PLS only.
         #                Conditioned on typereg so that tree/linear models are not
