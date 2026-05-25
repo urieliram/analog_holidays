@@ -1437,6 +1437,44 @@ def print_summary(
 
 # Plotting functions
 
+
+def _build_date_value_lookup(
+    df_dates: pd.DataFrame | None,
+    value_column: str,
+) -> dict[pd.Timestamp, str]:
+    """Return a normalized date -> label lookup when the column is available."""
+    if (
+        df_dates is None
+        or 'date' not in df_dates.columns
+        or value_column not in df_dates.columns
+    ):
+        return {}
+
+    lookup: dict[pd.Timestamp, str] = {}
+    for _, row in df_dates[['date', value_column]].iterrows():
+        value = row.get(value_column, pd.NA)
+        if pd.isna(value):
+            continue
+        lookup[pd.Timestamp(row['date']).normalize()] = str(value)
+    return lookup
+
+
+def _format_date_with_lookup(
+    date_value: pd.Timestamp | str,
+    lookup: dict[pd.Timestamp, str] | None = None,
+    date_format: str = '%d/%m/%y',
+) -> str:
+    """Format a date and append a lookup value such as ``[F]`` when present."""
+    normalized = pd.Timestamp(date_value).normalize()
+    label = normalized.strftime(date_format)
+    if not lookup:
+        return label
+
+    suffix = lookup.get(normalized, '')
+    if suffix == '':
+        return label
+    return f'{label} [{suffix}]'
+
 def plot_profiles_by_segment_dow(
     df_wide: pd.DataFrame,
     hour_cols: list,
@@ -1453,6 +1491,7 @@ def plot_profiles_by_segment_dow(
     import matplotlib.lines as mlines
 
     _date_to_holiday = {}
+    _date_to_analog_cluster = _build_date_value_lookup(df_holidays, 'analog_cluster')
     if df_holidays is not None:
         for _, hr in df_holidays.iterrows():
             dt = pd.Timestamp(hr['date']).normalize()
@@ -1490,7 +1529,11 @@ def plot_profiles_by_segment_dow(
                     peak_hour = int(np.argmax(y_vals))
                     ax.text(
                         peak_hour, y_vals[peak_hour],
-                        date_norm.strftime('%d/%m/%y'),
+                        _format_date_with_lookup(
+                            date_norm,
+                            _date_to_analog_cluster,
+                            date_format='%d/%m/%y',
+                        ),
                         fontsize=16, color='red', fontweight='bold',
                         ha='center', va='bottom', rotation=60,
                         bbox=dict(boxstyle='round,pad=0.1', fc='white', ec='none', alpha=0.6),
@@ -1505,7 +1548,14 @@ def plot_profiles_by_segment_dow(
             ax.plot(hour_cols, centroid, color='black', lw=2, ls='--')
 
             if green_dates:
-                sorted_g = [d.strftime('%d/%m/%y') for d in sorted(green_dates)]
+                sorted_g = [
+                    _format_date_with_lookup(
+                        d,
+                        _date_to_analog_cluster,
+                        date_format='%d/%m/%y',
+                    )
+                    for d in sorted(green_dates)
+                ]
                 mid = (len(sorted_g) + 1) // 2
                 label_green = '\n'.join([', '.join(sorted_g[:mid]), ', '.join(sorted_g[mid:])]).strip('\n') if len(sorted_g) > 3 else ', '.join(sorted_g)
                 ax.text(
@@ -1517,7 +1567,14 @@ def plot_profiles_by_segment_dow(
                 )
 
             if blue_dates:
-                sorted_b = [d.strftime('%d/%m/%y') for d in sorted(blue_dates)]
+                sorted_b = [
+                    _format_date_with_lookup(
+                        d,
+                        _date_to_analog_cluster,
+                        date_format='%d/%m/%y',
+                    )
+                    for d in sorted(blue_dates)
+                ]
                 mid = (len(sorted_b) + 1) // 2
                 label_txt = '\n'.join([', '.join(sorted_b[:mid]), ', '.join(sorted_b[mid:])]).strip('\n') if len(sorted_b) > 3 else ', '.join(sorted_b)
                 ax.text(
@@ -1529,14 +1586,20 @@ def plot_profiles_by_segment_dow(
                 )
 
             holiday_names_here = set()
+            analog_clusters_here = set()
             for d in green_dates + blue_dates:
                 name = _date_to_holiday.get(d)
                 if name:
                     holiday_names_here.add(name)
+                analog_cluster = _date_to_analog_cluster.get(d, '')
+                if analog_cluster:
+                    analog_clusters_here.add(analog_cluster)
 
             title = f'{weekday_names[dow]}\n({seg_label}, n={len(subset)})'
             if holiday_names_here:
                 title += f'\n({", ".join(sorted(holiday_names_here))})'
+            if analog_clusters_here:
+                title += f'\nAnalog: {"/".join(sorted(analog_clusters_here))}'
 
             ax.set_title(title, fontsize=12, pad=6)
             ax.set_xlabel('Hour', fontsize=10)
@@ -1572,6 +1635,7 @@ def plot_profiles_by_holiday(
     holiday_names_sorted = sorted(holiday_groups.keys())
     n_holidays = len(holiday_names_sorted)
     nrows = math.ceil(n_holidays / ncols)
+    _date_to_analog_cluster = _build_date_value_lookup(df_holidays, 'analog_cluster')
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5.5 * nrows), sharey=True)
     axes_flat = axes.flatten()
@@ -1584,6 +1648,7 @@ def plot_profiles_by_holiday(
         ax = axes_flat[idx]
         profiles = []
         months_seen = set()
+        holiday_clusters = set()
 
         for h_date in sorted(holiday_groups[h_name]):
             if h_date not in df_wide.index:
@@ -1593,6 +1658,9 @@ def plot_profiles_by_holiday(
                 continue
             profiles.append(profile)
             months_seen.add(h_date.month)
+            analog_cluster = _date_to_analog_cluster.get(pd.Timestamp(h_date).normalize(), '')
+            if analog_cluster:
+                holiday_clusters.add(analog_cluster)
 
             nearest_weekday, nearest_corr = _closest_weekday_reference_label(
                 profile,
@@ -1608,7 +1676,11 @@ def plot_profiles_by_holiday(
             )
             ax.plot(hour_cols, profile, color=color, alpha=alpha, lw=lw)
             peak = int(np.argmax(profile))
-            label = h_date.strftime('%d/%m/%Y')
+            label = _format_date_with_lookup(
+                h_date,
+                _date_to_analog_cluster,
+                date_format='%d/%m/%Y',
+            )
             formatted_reference = _format_weekday_reference(nearest_weekday, nearest_corr)
             if formatted_reference is not None:
                 label = f'{label} · {formatted_reference}'
@@ -1630,7 +1702,11 @@ def plot_profiles_by_holiday(
                     ax.text(hour_cols[-1], c[-1], lbl_ref,
                             fontsize=13, color=col_ref, fontweight='bold', ha='left', va='center')
 
-        ax.set_title(f'{h_name}\n(n={len(profiles)})', fontsize=13, pad=6)
+        title = f'{h_name}\n(n={len(profiles)})'
+        if holiday_clusters:
+            title += f'\nAnalog: {"/".join(sorted(holiday_clusters))}'
+
+        ax.set_title(title, fontsize=13, pad=6)
         ax.set_xlabel('Hour', fontsize=11)
         ax.set_xticks([0, 6, 12, 18, 23])
         ax.tick_params(labelsize=10)
@@ -2116,6 +2192,197 @@ def display_cluster_38h_crosstab(
     )
 
     return pivot
+
+
+def _build_analog_cluster_lookup(
+    df_holiday_selector_features: pd.DataFrame,
+) -> pd.DataFrame:
+    """Normalize the per-day analog cluster lookup used for 38-h profiles."""
+    return (
+        df_holiday_selector_features[['date', 'holiday_name', 'analog_cluster']]
+        .dropna(subset=['analog_cluster'])
+        .assign(date=lambda frame: pd.to_datetime(frame['date']).dt.normalize())
+        .drop_duplicates(subset=['date', 'holiday_name'])
+    )
+
+
+def _prepare_analog_cluster_38h_frames(
+    df_phol: pd.DataFrame,
+    analog_cluster_lookup: pd.DataFrame,
+    analog_cluster_labels: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Join 38-h profiles with analog-cluster labels and build the day table."""
+    df_phol_reset = df_phol.reset_index().copy()
+    if 'date' not in df_phol_reset.columns:
+        first_col = df_phol_reset.columns[0]
+        df_phol_reset = df_phol_reset.rename(columns={first_col: 'date'})
+
+    df_phol_fgh = (
+        df_phol_reset
+        .assign(date=lambda frame: pd.to_datetime(frame['date']).dt.normalize())
+        .merge(analog_cluster_lookup, on=['date', 'holiday_name'], how='left')
+    )
+    df_phol_fgh = (
+        df_phol_fgh[df_phol_fgh['analog_cluster'].isin(analog_cluster_labels)]
+        .sort_values(['analog_cluster', 'date'])
+        .set_index('date')
+    )
+
+    day_rows = [
+        {
+            'type': row['analog_cluster'],
+            'date': date_value,
+            'dow': date_value.day_name()[:3],
+            'holiday_name': row['holiday_name'],
+            'cluster_38h': row.get('cluster_type', pd.NA),
+        }
+        for date_value, row in df_phol_fgh.iterrows()
+    ]
+    df_days_fgh = pd.DataFrame(
+        day_rows,
+        columns=['type', 'date', 'dow', 'holiday_name', 'cluster_38h'],
+    )
+    df_days_fgh = (
+        df_days_fgh.sort_values(['type', 'date'])
+        .reset_index(drop=True)
+    )
+
+    return df_phol_fgh, df_days_fgh
+
+
+def _display_analog_cluster_38h_days(
+    df_days_fgh: pd.DataFrame,
+    analog_cluster_labels: list[str],
+    cluster_colors: list,
+) -> None:
+    """Display the per-day table for analog-cluster 38-h profiles."""
+    from IPython.display import display
+
+    def _day_bg_fgh(row):
+        idx = analog_cluster_labels.index(row['type'])
+        bg = cluster_colors[idx % len(cluster_colors)]
+        return [f'background-color: {bg}44; color: black'] * len(row)
+
+    print('\nDays per analog cluster')
+    display(
+        df_days_fgh.style
+        .apply(_day_bg_fgh, axis=1)
+        .format({'date': lambda d: d.strftime('%Y-%m-%d')})
+        .hide(axis='index')
+    )
+
+
+def _plot_analog_cluster_38h_profiles(
+    df_phol_fgh: pd.DataFrame,
+    analog_cluster_labels: list[str],
+    cluster_colors: list,
+    unique_id: str,
+    feat_cols: list,
+    previously_w_hours: int,
+) -> np.ndarray:
+    """Plot 38-h profiles grouped by analog-cluster label and return centroids."""
+    import matplotlib.pyplot as plt
+
+    x_axis = list(range(-previously_w_hours, 24))
+    fig, axes = plt.subplots(
+        1,
+        len(analog_cluster_labels),
+        figsize=(5.5 * len(analog_cluster_labels), 5),
+        sharey=True,
+    )
+    axes = np.atleast_1d(axes)
+
+    fig.suptitle(
+        f'38-h event profiles by analog cluster (F/G/H)  |  {unique_id}',
+        fontsize=13,
+        y=1.02,
+    )
+
+    centroids_fgh = []
+    for idx, (label, ax) in enumerate(zip(analog_cluster_labels, axes)):
+        color = cluster_colors[idx % len(cluster_colors)]
+        mask = df_phol_fgh['analog_cluster'] == label
+        data = df_phol_fgh.loc[mask, feat_cols].values
+        if len(data):
+            centroid = data.mean(axis=0)
+            centroids_fgh.append(centroid)
+            for profile in data:
+                ax.plot(x_axis, profile, color=color, alpha=0.30, lw=0.9)
+            ax.plot(x_axis, centroid, color=color, lw=3,
+                    label=f'Mean {label}', zorder=5)
+        else:
+            centroids_fgh.append(np.full(len(feat_cols), np.nan))
+            ax.text(0.5, 0.5, 'No events', ha='center', va='center',
+                    transform=ax.transAxes, fontsize=11)
+
+        ax.axvline(0, color='grey', ls='--', lw=0.9, label='midnight')
+        ax.set_title(f'Analog {label}  (n={mask.sum()})', fontsize=12)
+        ax.set_xlabel('Hour relative to holiday start (h=0)', fontsize=10)
+        ax.set_xticks(range(-previously_w_hours, 24, 4))
+        if idx == 0:
+            ax.set_ylabel(f'Demand [{unique_id}]', fontsize=10)
+        ax.legend(fontsize=9)
+
+    plt.tight_layout()
+    plt.show()
+    return np.vstack(centroids_fgh)
+
+
+def run_analog_cluster_38h_analysis(
+    df_phol: pd.DataFrame,
+    df_holiday_selector_features: pd.DataFrame,
+    cluster_colors: list,
+    unique_id: str,
+    feat_cols: list,
+    previously_w_hours: int = 14,
+    cluster_labels: tuple[str, ...] = ('F', 'G', 'H'),
+) -> dict:
+    """Group 38-h holiday profiles by stable analog-space labels F/G/H."""
+    required_selector_cols = {'date', 'holiday_name', 'analog_cluster'}
+    missing_selector_cols = required_selector_cols - set(df_holiday_selector_features.columns)
+    if missing_selector_cols:
+        raise ValueError(
+            'df_holiday_selector_features is missing required columns: '
+            f'{sorted(missing_selector_cols)}'
+        )
+
+    missing_feat_cols = [col for col in feat_cols if col not in df_phol.columns]
+    if missing_feat_cols:
+        raise ValueError(f'df_phol is missing feature columns: {missing_feat_cols}')
+
+    analog_cluster_labels = list(cluster_labels)
+    analog_cluster_lookup = _build_analog_cluster_lookup(df_holiday_selector_features)
+    df_phol_fgh, df_days_fgh = _prepare_analog_cluster_38h_frames(
+        df_phol,
+        analog_cluster_lookup,
+        analog_cluster_labels,
+    )
+
+    if df_phol_fgh.empty:
+        print('No 38-h profiles were matched to analog clusters F/G/H.')
+        centroids_fgh = np.empty((0, len(feat_cols)))
+    else:
+        _display_analog_cluster_38h_days(
+            df_days_fgh,
+            analog_cluster_labels,
+            cluster_colors,
+        )
+        centroids_fgh = _plot_analog_cluster_38h_profiles(
+            df_phol_fgh,
+            analog_cluster_labels,
+            cluster_colors,
+            unique_id,
+            feat_cols,
+            previously_w_hours,
+        )
+
+    print(f'Analog-cluster profiles available: {len(df_phol_fgh)}')
+    return {
+        'df_phol_fgh': df_phol_fgh,
+        'df_days_fgh': df_days_fgh,
+        'centroids_fgh': centroids_fgh,
+        'feat_cols': feat_cols,
+    }
 
 
 _SELECTOR_DOW_NAME_MAP = {

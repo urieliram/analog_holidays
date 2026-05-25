@@ -4,7 +4,9 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 
 
@@ -109,6 +111,31 @@ class AnalogPackageSmokeTests(unittest.TestCase):
         self.assertEqual(
             [date_value.strftime("%Y-%m-%d") for date_value in skipped_dates],
             ["2023-12-12"],
+        )
+
+    def test_date_cluster_formatter_appends_analog_cluster_when_available(self) -> None:
+        from analog_holidays.shared.identify_holidays import (
+            _build_date_value_lookup,
+            _format_date_with_lookup,
+        )
+
+        lookup = _build_date_value_lookup(
+            pd.DataFrame(
+                {
+                    "date": [pd.Timestamp("2024-12-25"), pd.Timestamp("2024-12-31")],
+                    "analog_cluster": ["F", pd.NA],
+                }
+            ),
+            "analog_cluster",
+        )
+
+        self.assertEqual(
+            _format_date_with_lookup(pd.Timestamp("2024-12-25"), lookup),
+            "25/12/24 [F]",
+        )
+        self.assertEqual(
+            _format_date_with_lookup(pd.Timestamp("2024-12-31"), lookup),
+            "31/12/24",
         )
 
     def test_pre_holiday_helpers_ignore_cluster_columns(self) -> None:
@@ -231,6 +258,125 @@ class AnalogPackageSmokeTests(unittest.TestCase):
                 "analog_cluster",
             ].tolist(),
             ["F"],
+        )
+
+    def test_extract_hour_window_spans_preholiday_and_holiday(self) -> None:
+        from analog_holidays.analog.analog_holidays import _extract_hour_window
+
+        df_region = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-12-24", "2024-12-25"]),
+                **{f"h_{hour:02d}": [float(hour), float(100 + hour)] for hour in range(24)},
+            }
+        )
+
+        window = _extract_hour_window(
+            df_region=df_region,
+            window_start=pd.Timestamp("2024-12-24 10:00:00"),
+            length_hours=38,
+        )
+
+        expected = np.asarray(
+            list(range(10, 24)) + list(range(100, 124)),
+            dtype=np.float64,
+        )
+        np.testing.assert_allclose(window, expected)
+
+    def test_run_analog_holidays_supports_offset_forecast_window(self) -> None:
+        import analog_holidays.analog.analog_holidays as analog_holidays_module
+
+        hour_columns = {
+            f"h_{hour:02d}": [float(day_idx * 100 + hour) for day_idx in range(6)]
+            for hour in range(24)
+        }
+        df_source = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 6,
+                "date": pd.date_range("2024-12-20", periods=6, freq="D"),
+                "label": [
+                    "normal_day",
+                    "normal_day",
+                    "normal_day",
+                    "holiday",
+                    "normal_day",
+                    "holiday",
+                ],
+                "holiday_name": [
+                    pd.NA,
+                    pd.NA,
+                    pd.NA,
+                    "Historic Holiday",
+                    pd.NA,
+                    "Target Holiday",
+                ],
+                "holiday_type": [pd.NA] * 6,
+                "is_declared_holiday": [False, False, False, True, False, True],
+                "is_outlier": [False] * 6,
+                "outlier_score": [np.nan] * 6,
+                **hour_columns,
+            }
+        )
+
+        class DummyAnalogSpecialDays:
+            def __init__(self, *args, **kwargs) -> None:
+                self.kwargs = kwargs
+
+            def fit(self, y, special_days):
+                self.y = np.asarray(y, dtype=np.float64)
+                self.special_days = np.asarray(special_days, dtype=np.float64)
+                return self
+
+            def predict(self, h, level):
+                result = {"mean": np.full(h, 999.0, dtype=np.float64)}
+                for lv in level:
+                    result[f"lo-{lv}"] = np.full(h, 990.0, dtype=np.float64)
+                    result[f"hi-{lv}"] = np.full(h, 1010.0, dtype=np.float64)
+                return result
+
+        def fake_core(**kwargs):
+            vsele = int(kwargs["vsele"])
+            return (
+                np.full(vsele, 999.0, dtype=np.float64),
+                0.01,
+                0.02,
+                False,
+                [20],
+                np.full((1, vsele), 777.0, dtype=np.float64),
+            )
+
+        with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(
+            analog_holidays_module,
+            "AnalogSpecialDays",
+            DummyAnalogSpecialDays,
+        ), patch.object(
+            analog_holidays_module,
+            "analog_special_days_core",
+            side_effect=fake_core,
+        ):
+            run = analog_holidays_module.run_analog_holidays(
+                unique_id="SEN_demand_SIN",
+                target_date="2024-12-25",
+                season_length=38,
+                forecast_start_offset_hours=14,
+                levels=[80, 95],
+                special_labels=("holiday",),
+                min_special_points=24,
+            )
+
+        self.assertEqual(run.forecast_start, pd.Timestamp("2024-12-24 10:00:00"))
+        self.assertEqual(run.forecast_end, pd.Timestamp("2024-12-26 00:00:00"))
+        self.assertEqual(run.forecast_start_offset_hours, 14)
+        self.assertEqual(len(run.hourly_series), 106)
+        self.assertEqual(len(run.previous_day_profile), 38)
+        self.assertEqual(len(run.actual_profile), 38)
+        expected_actual = np.asarray(
+            list(range(410, 424)) + list(range(500, 524)),
+            dtype=np.float64,
+        )
+        np.testing.assert_allclose(run.actual_profile, expected_actual)
+        self.assertEqual(
+            run.selected_days_df["special_date"].dt.strftime("%Y-%m-%d").tolist(),
+            ["2024-12-23"],
         )
 
 

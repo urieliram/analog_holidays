@@ -38,6 +38,9 @@ DEFAULT_SELECTOR_FEATURES_PATH = PACKAGE_ROOT / "holidays" / "holiday_selector_f
 class AnalogHolidayRun:
     unique_id: str
     target_date: pd.Timestamp
+    forecast_start: pd.Timestamp
+    forecast_end: pd.Timestamp
+    forecast_start_offset_hours: int
     target_exists: bool
     target_has_complete_profile: bool
     typedist: str
@@ -301,11 +304,68 @@ def _restrict_daily_mask_to_target_cluster(
     return restricted_mask.astype(bool)
 
 
+def _normalize_forecast_start_offset_hours(
+    forecast_start_offset_hours: int,
+) -> int:
+    offset_hours = int(forecast_start_offset_hours)
+    if offset_hours < 0:
+        raise ValueError("forecast_start_offset_hours must be >= 0.")
+    return offset_hours
+
+
+def _truncate_hourly_history(
+    hourly_values: np.ndarray,
+    forecast_start_offset_hours: int,
+) -> np.ndarray:
+    offset_hours = _normalize_forecast_start_offset_hours(forecast_start_offset_hours)
+    if offset_hours == 0:
+        return hourly_values
+    if offset_hours >= len(hourly_values):
+        return np.asarray([], dtype=np.float64)
+    return hourly_values[:-offset_hours]
+
+
+def _extract_hour_window(
+    df_region: pd.DataFrame,
+    window_start: pd.Timestamp,
+    length_hours: int,
+) -> Optional[np.ndarray]:
+    if length_hours <= 0:
+        raise ValueError("length_hours must be > 0.")
+
+    start_ts = pd.Timestamp(window_start)
+    start_day = start_ts.normalize()
+    start_hour = int((start_ts - start_day) / pd.Timedelta(hours=1))
+    if start_hour < 0 or start_hour >= len(HOUR_COLS):
+        raise ValueError(
+            f"window_start must be aligned to a valid hourly slot, got {start_ts!s}."
+        )
+
+    days_needed = math.ceil((start_hour + int(length_hours)) / len(HOUR_COLS))
+    expected_dates = pd.date_range(start_day, periods=days_needed, freq="D")
+    daily_profiles = (
+        df_region[["date", *HOUR_COLS]]
+        .drop_duplicates(subset="date")
+        .set_index("date")
+        .sort_index()
+        .reindex(expected_dates)
+    )
+    if daily_profiles.isna().any().any():
+        return None
+
+    flattened = daily_profiles.to_numpy(dtype=np.float64).reshape(-1)
+    window = flattened[start_hour:start_hour + int(length_hours)]
+    if len(window) != int(length_hours) or not np.isfinite(window).all():
+        return None
+    return window
+
+
 def run_analog_holidays(
     unique_id: str,
     target_date: str | pd.Timestamp,
     source_path: Path | str = DEFAULT_SOURCE_PATH,
     season_length: int = 24,
+    forecast_start_offset_hours: int = 0,
     k: Optional[int] = None,
     typedist: str = "pearson",
     typereg: str = "PCR",
@@ -324,8 +384,13 @@ def run_analog_holidays(
     match_target_cluster: bool = False,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
 ) -> AnalogHolidayRun:
-    """Run a 24-hour AnalogSpecialDays forecast for a target date."""
-    target_ts = pd.Timestamp(target_date)
+    """Run an offset-aware AnalogSpecialDays forecast for a holiday date."""
+    target_ts = pd.Timestamp(target_date).normalize()
+    forecast_start_offset_hours = _normalize_forecast_start_offset_hours(
+        forecast_start_offset_hours
+    )
+    forecast_start = target_ts - pd.Timedelta(hours=forecast_start_offset_hours)
+    forecast_end = forecast_start + pd.Timedelta(hours=season_length)
     levels = list(DEFAULT_LEVELS if levels is None else levels)
 
     df = load_audit_source(source_path)
@@ -362,11 +427,15 @@ def run_analog_holidays(
             match_target_cluster=match_target_cluster,
         )
 
-    hourly_series = _flatten_daily_profiles(train_df)
+    hourly_series = _truncate_hourly_history(
+        _flatten_daily_profiles(train_df),
+        forecast_start_offset_hours,
+    )
     if len(hourly_series) < 2 * season_length + 1:
         raise ValueError(
             "History is too short for AnalogSpecialDays. "
-            f"At least {2 * season_length + 1} hourly points are required."
+            f"At least {2 * season_length + 1} hourly points are required before "
+            f"forecast_start={forecast_start}."
         )
 
     special_day_daily_mask = build_special_day_daily_mask(
@@ -387,6 +456,10 @@ def run_analog_holidays(
     special_day_hourly_mask = np.repeat(
         special_day_daily_mask.astype(float).to_numpy(),
         len(HOUR_COLS),
+    )
+    special_day_hourly_mask = _truncate_hourly_history(
+        special_day_hourly_mask,
+        forecast_start_offset_hours,
     )
 
     model = AnalogSpecialDays(
@@ -424,20 +497,23 @@ def run_analog_holidays(
         positions=positions,
         neighbors2=neighbors2,
         season_length=season_length,
+        forecast_start_offset_hours=forecast_start_offset_hours,
     )
 
-    previous_day_profile = train_df.iloc[-1][HOUR_COLS].to_numpy(dtype=np.float64)
-    target_has_complete_profile = False
-    actual_profile = None
-    if target_row is not None:
-        candidate_actual = target_row[HOUR_COLS].to_numpy(dtype=np.float64)
-        if np.isfinite(candidate_actual).all():
-            actual_profile = candidate_actual
-            target_has_complete_profile = True
+    previous_day_profile = hourly_series[-season_length:].copy()
+    actual_profile = _extract_hour_window(
+        df_region,
+        window_start=forecast_start,
+        length_hours=season_length,
+    )
+    target_has_complete_profile = actual_profile is not None
 
     return AnalogHolidayRun(
         unique_id=unique_id,
         target_date=target_ts,
+        forecast_start=forecast_start,
+        forecast_end=forecast_end,
+        forecast_start_offset_hours=forecast_start_offset_hours,
         target_exists=target_row is not None,
         target_has_complete_profile=target_has_complete_profile,
         typedist=typedist,
@@ -477,6 +553,7 @@ def tune_analog_holidays_optuna(
     source_path: Path | str = DEFAULT_SOURCE_PATH,
     train_end: str | pd.Timestamp = "2024-01-01",
     season_length: int = 24,
+    forecast_start_offset_hours: int = 0,
     initial_k: Optional[int] = None,
     initial_typedist: str = "pearson",
     initial_typereg: str = "PCR",
@@ -575,6 +652,7 @@ def tune_analog_holidays_optuna(
                 min_special_points=min_special_points,
                 min_event_gap=min_event_gap,
                 max_events=max_events,
+                forecast_start_offset_hours=forecast_start_offset_hours,
                 label_column=label_column,
                 selector_cluster_lookup=selector_cluster_lookup,
                 match_target_cluster=match_target_cluster,
@@ -650,6 +728,7 @@ def tune_analog_holidays_optuna(
                         min_special_points=min_special_points,
                         min_event_gap=min_event_gap,
                         max_events=max_events,
+                        forecast_start_offset_hours=forecast_start_offset_hours,
                         label_column=label_column,
                         selector_cluster_lookup=selector_cluster_lookup,
                         match_target_cluster=match_target_cluster,
@@ -698,6 +777,7 @@ def tune_analog_holidays_optuna(
         [
             {"param": "cutoff_train", "value": train_end_ts.date().isoformat()},
             {"param": "eval_dates", "value": len(eligible_dates)},
+            {"param": "FORECAST_START_OFFSET_HOURS", "value": int(forecast_start_offset_hours)},
             {"param": "best_mean_mae", "value": round(best_trial.user_attrs["mean_mae"], 6)},
             {"param": "best_mean_mape_pct", "value": round(best_trial.user_attrs["mean_mape_pct"], 3)},
             {"param": "best_fail_rate", "value": round(best_trial.user_attrs["fail_rate"], 3)},
@@ -723,6 +803,7 @@ def run_analog_holidays_batch(
     unique_id: str,
     source_path: Path | str = DEFAULT_SOURCE_PATH,
     season_length: int = 24,
+    forecast_start_offset_hours: int = 0,
     k: Optional[int] = None,
     typedist: str = "pearson",
     typereg: str = "PCR",
@@ -757,6 +838,7 @@ def run_analog_holidays_batch(
                 target_date=target_date,
                 source_path=source_path,
                 season_length=season_length,
+                forecast_start_offset_hours=forecast_start_offset_hours,
                 k=k,
                 typedist=typedist,
                 typereg=typereg,
@@ -779,20 +861,30 @@ def run_analog_holidays_batch(
 
             mae_24h = np.nan
             mape_24h_pct = np.nan
+            mae_window = np.nan
+            mape_window_pct = np.nan
             if run.actual_profile is not None:
-                mae_24h = float(np.mean(np.abs(run.forecast_profile - run.actual_profile)))
+                mae_window = float(np.mean(np.abs(run.forecast_profile - run.actual_profile)))
                 ape_pct = _absolute_percentage_error(run.actual_profile, run.forecast_profile)
                 if np.isfinite(ape_pct).any():
-                    mape_24h_pct = float(np.nanmean(ape_pct))
+                    mape_window_pct = float(np.nanmean(ape_pct))
+                mae_24h = mae_window
+                mape_24h_pct = mape_window_pct
 
             rows.append(
                 {
                     "target_date": target_date,
                     "holiday_label": holiday_label,
+                    "forecast_start": run.forecast_start,
+                    "forecast_end": run.forecast_end,
+                    "forecast_start_offset_hours": run.forecast_start_offset_hours,
+                    "forecast_hours": run.season_length,
                     "target_exists": run.target_exists,
                     "target_has_complete_profile": run.target_has_complete_profile,
                     "selected_analogs": len(run.positions),
                     "fail": run.fail,
+                    "mae_window": mae_window,
+                    "mape_window_pct": mape_window_pct,
                     "mae_24h": mae_24h,
                     "mape_24h_pct": mape_24h_pct,
                     "t_sel_sec": run.t_sel,
@@ -809,10 +901,16 @@ def run_analog_holidays_batch(
                 {
                     "target_date": target_date,
                     "holiday_label": holiday_label,
+                    "forecast_start": pd.NaT,
+                    "forecast_end": pd.NaT,
+                    "forecast_start_offset_hours": int(forecast_start_offset_hours),
+                    "forecast_hours": int(season_length),
                     "target_exists": False,
                     "target_has_complete_profile": False,
                     "selected_analogs": 0,
                     "fail": True,
+                    "mae_window": np.nan,
+                    "mape_window_pct": np.nan,
                     "mae_24h": np.nan,
                     "mape_24h_pct": np.nan,
                     "t_sel_sec": np.nan,
@@ -826,7 +924,7 @@ def run_analog_holidays_batch(
             )
 
     results_df = pd.DataFrame(rows)
-    metric_summary_df = results_df[["mae_24h", "mape_24h_pct"]].describe(include="all")
+    metric_summary_df = results_df[["mae_window", "mape_window_pct"]].describe(include="all")
     return AnalogHolidayBatchResult(
         target_items=target_items,
         runs=runs,
@@ -918,6 +1016,7 @@ def build_selected_days_table(
     positions: Sequence[int],
     neighbors2: np.ndarray,
     season_length: int,
+    forecast_start_offset_hours: int = 0,
 ) -> pd.DataFrame:
     """Map selected hourly positions back to daily context metadata."""
     if len(positions) == 0:
@@ -932,7 +1031,11 @@ def build_selected_days_table(
     records = []
     for idx, pos in enumerate(positions):
         context_day_idx = int(pos // steps_per_day)
-        special_day_idx = int((pos + season_length) // steps_per_day)
+        special_day_idx = int(
+            (pos + season_length + int(forecast_start_offset_hours)) // steps_per_day
+        )
+        if special_day_idx >= len(train_df):
+            continue
         context_row = train_df.iloc[context_day_idx]
         special_row = train_df.iloc[special_day_idx]
 
@@ -979,6 +1082,10 @@ def build_run_summary(run: AnalogHolidayRun) -> pd.DataFrame:
     rows = [
         ("unique_id", run.unique_id),
         ("target_date", run.target_date.date().isoformat()),
+        ("forecast_start", run.forecast_start.strftime("%Y-%m-%d %H:%M")),
+        ("forecast_end", run.forecast_end.strftime("%Y-%m-%d %H:%M")),
+        ("forecast_start_offset_hours", run.forecast_start_offset_hours),
+        ("forecast_window_hours", run.season_length),
         ("target_exists", run.target_exists),
         ("target_has_complete_profile", run.target_has_complete_profile),
         ("target_label", target_label),
@@ -992,7 +1099,7 @@ def build_run_summary(run: AnalogHolidayRun) -> pd.DataFrame:
         ("fail", run.fail),
         ("t_sel_sec", round(run.t_sel, 6)),
         ("t_reg_sec", round(run.t_reg, 6)),
-        ("mape_24h_pct", None if np.isnan(mape) else round(mape, 3)),
+        ("mape_window_pct", None if np.isnan(mape) else round(mape, 3)),
     ]
     return pd.DataFrame(rows, columns=["metric", "value"])
 
@@ -1030,9 +1137,29 @@ def build_analog_ranking_table(run: AnalogHolidayRun) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
+def _relative_hour_axis(run: AnalogHolidayRun) -> np.ndarray:
+    return np.arange(run.season_length) - int(run.forecast_start_offset_hours)
+
+
+def _pair_relative_hour_axis(run: AnalogHolidayRun) -> np.ndarray:
+    horizon = run.season_length * 2
+    return np.arange(horizon) - (run.season_length + int(run.forecast_start_offset_hours))
+
+
+def _hour_tick_step(length: int) -> int:
+    if length <= 12:
+        return 1
+    if length <= 24:
+        return 2
+    if length <= 48:
+        return 4
+    return 6
+
+
 def plot_forecast_diagnostics(run: AnalogHolidayRun):
     """Plot a two-panel forecast diagnostic figure."""
-    hours = np.arange(run.season_length)
+    hours = _relative_hour_axis(run)
+    tick_step = _hour_tick_step(run.season_length)
     fig, axes = plt.subplots(
         2,
         1,
@@ -1062,7 +1189,9 @@ def plot_forecast_diagnostics(run: AnalogHolidayRun):
         f"{run.typedist} | {run.typereg}"
     )
     ax.set_ylabel("Demand")
-    ax.set_xticks(hours)
+    ax.set_xticks(hours[::tick_step])
+    ax.set_xlim(hours[0], hours[-1])
+    ax.axvline(0, color="#6c757d", linewidth=1.0, linestyle=":")
     ax.legend(fontsize=9, ncol=2)
     ax.grid(alpha=0.2)
 
@@ -1085,8 +1214,10 @@ def plot_forecast_diagnostics(run: AnalogHolidayRun):
         ax2.set_title("Hourly uncertainty")
         ax2.set_ylabel("Demand")
 
-    ax2.set_xlabel("Hour")
-    ax2.set_xticks(hours)
+    ax2.set_xlabel("Hour relative to holiday start")
+    ax2.set_xticks(hours[::tick_step])
+    ax2.set_xlim(hours[0], hours[-1])
+    ax2.axvline(0, color="#6c757d", linewidth=1.0, linestyle=":")
     ax2.legend(fontsize=9, ncol=2)
     ax2.grid(alpha=0.2)
     fig.tight_layout()
@@ -1113,7 +1244,8 @@ def plot_ranked_analog_profiles(
         return fig, axes
 
     top_profiles = ranking_df.head(top_n).copy()
-    hours = np.arange(run.season_length)
+    hours = _relative_hour_axis(run)
+    tick_step = _hour_tick_step(run.season_length)
     reference_profile = run.actual_profile if run.actual_profile is not None else run.forecast_profile
     reference_label = "Actual" if run.actual_profile is not None else "Forecast"
     colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(top_profiles)))
@@ -1135,7 +1267,9 @@ def plot_ranked_analog_profiles(
     ax.plot(hours, reference_profile, color="#000000", linewidth=2.1, label=reference_label)
     ax.set_title(f"Top ranked analog profiles\n{run.unique_id} | {run.target_date.date()}")
     ax.set_ylabel("Demand")
-    ax.set_xticks(hours)
+    ax.set_xticks(hours[::tick_step])
+    ax.set_xlim(hours[0], hours[-1])
+    ax.axvline(0, color="#6c757d", linewidth=1.0, linestyle=":")
     ax.legend(fontsize=8, ncol=2)
     ax.grid(alpha=0.2)
 
@@ -1188,7 +1322,8 @@ def plot_batch_inference_grid(
             continue
 
         row = summary_by_date.loc[target_date]
-        hours = np.arange(run.season_length)
+        hours = _relative_hour_axis(run)
+        tick_step = _hour_tick_step(run.season_length)
 
         ax.plot(
             hours,
@@ -1222,10 +1357,12 @@ def plot_batch_inference_grid(
             )
 
         metric_parts = []
-        if pd.notna(row.get("mape_24h_pct", np.nan)):
-            metric_parts.append(f"MAPE {row['mape_24h_pct']:.2f}%")
-        if pd.notna(row.get("mae_24h", np.nan)):
-            metric_parts.append(f"MAE {row['mae_24h']:.0f}")
+        mape_value = row.get("mape_window_pct", row.get("mape_24h_pct", np.nan))
+        mae_value = row.get("mae_window", row.get("mae_24h", np.nan))
+        if pd.notna(mape_value):
+            metric_parts.append(f"MAPE {mape_value:.2f}%")
+        if pd.notna(mae_value):
+            metric_parts.append(f"MAE {mae_value:.0f}")
         if pd.notna(row.get("k", np.nan)):
             metric_parts.append(f"k={int(row['k'])}")
 
@@ -1235,8 +1372,9 @@ def plot_batch_inference_grid(
             fontsize=10,
         )
         ax.grid(alpha=0.2)
-        ax.set_xticks(hours[::6])
-        ax.set_xlim(0, run.season_length - 1)
+        ax.set_xticks(hours[::tick_step])
+        ax.set_xlim(hours[0], hours[-1])
+        ax.axvline(0, color="#6c757d", linewidth=1.0, linestyle=":")
 
         if legend_handles is None:
             legend_handles, legend_labels = ax.get_legend_handles_labels()
@@ -1299,15 +1437,12 @@ def plot_batch_pair_sequences_grid(
 
     for ax, (target_date, holiday_label) in zip(axes, batch_result.target_items):
         run = batch_result.runs.get(target_date)
-        target_ts = pd.Timestamp(target_date)
-        prev_ts = target_ts - pd.Timedelta(days=1)
-        date_pair_text = f"{prev_ts.date()}  |  {target_ts.date()}"
         label_text = holiday_label or "sin etiqueta"
 
         metric_row = metrics_by_date.get(target_date)
         if metric_row is not None:
-            mape_val = metric_row.get("mape_24h_pct", np.nan)
-            mae_val = metric_row.get("mae_24h", np.nan)
+            mape_val = metric_row.get("mape_window_pct", metric_row.get("mape_24h_pct", np.nan))
+            mae_val = metric_row.get("mae_window", metric_row.get("mae_24h", np.nan))
             k_val = metric_row.get("k", None)
             typereg_val = metric_row.get("typereg", "")
             typedist_val = metric_row.get("typedist", "")
@@ -1323,10 +1458,19 @@ def plot_batch_pair_sequences_grid(
         k_text = f"k={int(k_val)}" if k_val is not None and not (isinstance(k_val, float) and np.isnan(k_val)) else "k=n/a"
         metrics_text = f"{mape_text} | {mae_text} | {k_text} | {typereg_val} | {typedist_val}"
 
+        if run is not None:
+            window_start = run.forecast_start.strftime("%m-%d %H:%M")
+            window_end = (run.forecast_end - pd.Timedelta(hours=1)).strftime("%m-%d %H:%M")
+            date_pair_text = f"{window_start} → {window_end}"
+        else:
+            target_ts = pd.Timestamp(target_date)
+            prev_ts = target_ts - pd.Timedelta(days=1)
+            date_pair_text = f"{prev_ts.date()}  |  {target_ts.date()}"
+
         panel_title = (
             f"{label_text}\n"
             f"{date_pair_text}\n"
-            f"← día previo            día objetivo →\n"
+            f"← contexto            ventana objetivo →\n"
             f"{metrics_text}"
         )
 
@@ -1398,7 +1542,8 @@ def plot_recent_context(
 
 def plot_forecast_vs_actual(run: AnalogHolidayRun, ax=None):
     """Plot forecast interval and actual target profile when available."""
-    hours = np.arange(run.season_length)
+    hours = _relative_hour_axis(run)
+    tick_step = _hour_tick_step(run.season_length)
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(14, 5))
@@ -1435,9 +1580,11 @@ def plot_forecast_vs_actual(run: AnalogHolidayRun, ax=None):
 
     subtitle = f"{run.unique_id} | {run.target_date.date()} | {run.typedist} | {run.typereg}"
     ax.set_title(f"Hourly forecast vs actual\n{subtitle}")
-    ax.set_xlabel("Hour")
+    ax.set_xlabel("Hour relative to holiday start")
     ax.set_ylabel("Demand")
-    ax.set_xticks(hours)
+    ax.set_xticks(hours[::tick_step])
+    ax.set_xlim(hours[0], hours[-1])
+    ax.axvline(0, color="#6c757d", linewidth=1.0, linestyle=":")
     ax.legend(loc="best")
     ax.grid(alpha=0.2)
     return fig, ax
@@ -1449,7 +1596,8 @@ def plot_selected_analog_profiles(
     ax=None,
 ):
     """Plot selected analog profiles together with forecast and actual."""
-    hours = np.arange(run.season_length)
+    hours = _relative_hour_axis(run)
+    tick_step = _hour_tick_step(run.season_length)
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(14, 5))
@@ -1470,9 +1618,11 @@ def plot_selected_analog_profiles(
         ax.plot(hours, run.actual_profile, color="#003049", linewidth=2.0, label="Actual")
 
     ax.set_title(f"Selected special profiles ({plotted})\n{run.unique_id} | {run.target_date.date()}")
-    ax.set_xlabel("Hour")
+    ax.set_xlabel("Hour relative to holiday start")
     ax.set_ylabel("Demand")
-    ax.set_xticks(hours)
+    ax.set_xticks(hours[::tick_step])
+    ax.set_xlim(hours[0], hours[-1])
+    ax.axvline(0, color="#6c757d", linewidth=1.0, linestyle=":")
     ax.grid(alpha=0.2)
     ax.legend(loc="best", ncol=2)
     return fig, ax
@@ -1486,7 +1636,8 @@ def plot_analog_pair_sequences(
     """Plot historical X/X2 pairs together with the forecast Y2 sequence."""
     pair_length = run.season_length
     horizon = pair_length * 2
-    hours = np.arange(horizon)
+    hours = _pair_relative_hour_axis(run)
+    tick_step = _hour_tick_step(horizon)
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(14, 6))
@@ -1514,10 +1665,13 @@ def plot_analog_pair_sequences(
             label = "Historical X/X2 pairs" if idx == 0 else None
             ax.plot(hours, pair, color="#669bbc", alpha=0.28, linewidth=1.4, label=label)
 
-    # Y: context window of the target date (day immediately before the forecast)
+    context_hours = hours[:pair_length]
+    forecast_hours = hours[pair_length:]
+
+    # Y: context window immediately before the forecast start.
     if run.previous_day_profile is not None and len(run.previous_day_profile) == pair_length:
         ax.plot(
-            np.arange(pair_length),
+            context_hours,
             run.previous_day_profile,
             color="#000000",
             linewidth=2.2,
@@ -1525,7 +1679,7 @@ def plot_analog_pair_sequences(
         )
 
     ax.plot(
-        np.arange(pair_length, horizon),
+        forecast_hours,
         run.forecast_profile,
         color="#d62828",
         linewidth=2.8,
@@ -1534,24 +1688,29 @@ def plot_analog_pair_sequences(
 
     if run.actual_profile is not None:
         ax.plot(
-            np.arange(pair_length, horizon),
+            forecast_hours,
             run.actual_profile,
             color="#000000",
             linewidth=2.0,
             label="Actual Y2",
         )
 
-    ax.axvline(pair_length - 0.5, color="#ff8000", linestyle=":", linewidth=1.2)
-    ax.axvspan(-0.5, pair_length - 0.5, color="#ff8000", alpha=0.04)
-    ax.axvspan(pair_length - 0.5, horizon - 0.5, color="#d62828", alpha=0.035)
+    forecast_boundary = forecast_hours[0] - 0.5
+    ax.axvline(forecast_boundary, color="#ff8000", linestyle=":", linewidth=1.2)
+    ax.axvspan(hours[0] - 0.5, forecast_boundary, color="#ff8000", alpha=0.04)
+    ax.axvspan(forecast_boundary, hours[-1] + 0.5, color="#d62828", alpha=0.035)
+    if run.forecast_start_offset_hours > 0:
+        ax.axvline(-0.5, color="#6c757d", linestyle="--", linewidth=1.0, label="Holiday start")
 
     ymax = ax.get_ylim()[1]
-    ax.text(pair_length / 2 - 0.5, ymax, "X", color="#ff8000", ha="center", va="bottom")
-    ax.text(pair_length + pair_length / 2 - 0.5, ymax, "X2 / Y2", color="#d62828", ha="center", va="bottom")
+    ax.text(context_hours.mean(), ymax, "X", color="#ff8000", ha="center", va="bottom")
+    ax.text(forecast_hours.mean(), ymax, "X2 / Y2", color="#d62828", ha="center", va="bottom")
 
     ax.set_title("X/X2 selection and Y2 forecast", fontsize="x-large", color="#ff8000")
-    ax.set_xlabel("Time", color="#ff8000", fontsize="large")
+    ax.set_xlabel("Hour relative to holiday start", color="#ff8000", fontsize="large")
     ax.set_ylabel("Demand", color="#ff8000", fontsize="large")
+    ax.set_xticks(hours[::tick_step])
+    ax.set_xlim(hours[0], hours[-1])
     ax.tick_params(colors="#ff8000", which="both")
     ax.spines["bottom"].set_color("#ff8000")
     ax.spines["top"].set_color("#ff8000")
@@ -1592,23 +1751,31 @@ def _evaluate_analog_holiday_fold(
     min_special_points: Optional[int],
     min_event_gap: Optional[int],
     max_events: Optional[int],
+    forecast_start_offset_hours: int,
     label_column: str,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
     match_target_cluster: bool = False,
     dtw_window: Optional[float] = None,
 ) -> dict[str, object]:
     """Evaluate a single historical special date as a tuning fold."""
-    target_ts = pd.Timestamp(target_date)
+    target_ts = pd.Timestamp(target_date).normalize()
+    forecast_start_offset_hours = _normalize_forecast_start_offset_hours(
+        forecast_start_offset_hours
+    )
+    forecast_start = target_ts - pd.Timedelta(hours=forecast_start_offset_hours)
     train_df = history_df.loc[history_df["date"] < target_ts].copy()
     target_row = history_df.loc[history_df["date"] == target_ts]
 
     if train_df.empty or target_row.empty:
         raise ValueError(f"Invalid fold for {target_ts.date()}.")
 
-    hourly_series = _flatten_daily_profiles(train_df)
+    hourly_series = _truncate_hourly_history(
+        _flatten_daily_profiles(train_df),
+        forecast_start_offset_hours,
+    )
     if len(hourly_series) < 2 * season_length + 1:
         raise ValueError(
-            f"Insufficient history before {target_ts.date()} for season_length={season_length}."
+            f"Insufficient history before {forecast_start} for season_length={season_length}."
         )
 
     special_mask = build_special_day_daily_mask(
@@ -1634,7 +1801,19 @@ def _evaluate_analog_holiday_fold(
         special_mask.astype(float).to_numpy(),
         len(HOUR_COLS),
     )
-    actual_profile = target_row.iloc[0][HOUR_COLS].to_numpy(dtype=np.float64)
+    special_hourly_mask = _truncate_hourly_history(
+        special_hourly_mask,
+        forecast_start_offset_hours,
+    )
+    actual_profile = _extract_hour_window(
+        history_df,
+        window_start=forecast_start,
+        length_hours=season_length,
+    )
+    if actual_profile is None:
+        raise ValueError(
+            f"Incomplete actual window for {target_ts.date()} and season_length={season_length}."
+        )
 
     model = AnalogSpecialDays(
         season_length=season_length,
