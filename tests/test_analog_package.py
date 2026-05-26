@@ -379,6 +379,226 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             ["2024-12-23"],
         )
 
+    def test_run_analog_holidays_passes_regressor_params(self) -> None:
+        import analog_holidays.analog.analog_holidays as analog_holidays_module
+
+        hour_columns = {
+            f"h_{hour:02d}": [float(day_idx * 100 + hour) for day_idx in range(4)]
+            for hour in range(24)
+        }
+        df_source = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 4,
+                "date": pd.date_range("2024-12-21", periods=4, freq="D"),
+                "label": ["normal_day", "holiday", "normal_day", "holiday"],
+                "holiday_name": [pd.NA, "Historic Holiday", pd.NA, "Target Holiday"],
+                "holiday_type": [pd.NA] * 4,
+                "is_declared_holiday": [False, True, False, True],
+                "is_outlier": [False] * 4,
+                "outlier_score": [np.nan] * 4,
+                **hour_columns,
+            }
+        )
+
+        init_kwargs = {}
+        core_kwargs = {}
+
+        class DummyAnalogSpecialDays:
+            def __init__(self, *args, **kwargs) -> None:
+                init_kwargs.update(kwargs)
+
+            def fit(self, y, special_days):
+                return self
+
+            def predict(self, h, level):
+                result = {"mean": np.full(h, 1.0, dtype=np.float64)}
+                for lv in level:
+                    result[f"lo-{lv}"] = np.full(h, 0.0, dtype=np.float64)
+                    result[f"hi-{lv}"] = np.full(h, 2.0, dtype=np.float64)
+                return result
+
+        def fake_core(**kwargs):
+            core_kwargs.update(kwargs)
+            vsele = int(kwargs["vsele"])
+            return (
+                np.full(vsele, 1.0, dtype=np.float64),
+                0.01,
+                0.02,
+                False,
+                [0],
+                np.full((1, vsele), 2.0, dtype=np.float64),
+            )
+
+        regressor_params = {"n_estimators": 250, "max_depth": 8, "min_samples_leaf": 2}
+
+        with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(
+            analog_holidays_module,
+            "AnalogSpecialDays",
+            DummyAnalogSpecialDays,
+        ), patch.object(
+            analog_holidays_module,
+            "analog_special_days_core",
+            side_effect=fake_core,
+        ):
+            analog_holidays_module.run_analog_holidays(
+                unique_id="SEN_demand_SIN",
+                target_date="2024-12-24",
+                season_length=24,
+                typedist="pearson",
+                typereg="RF",
+                regressor_params=regressor_params,
+                special_labels=("holiday",),
+            )
+
+        self.assertEqual(init_kwargs["regressor_params"], regressor_params)
+        self.assertEqual(core_kwargs["regressor_params"], regressor_params)
+
+    def test_tune_analog_holidays_optuna_returns_rf_regressor_params(self) -> None:
+        import analog_holidays.analog.analog_holidays as analog_holidays_module
+
+        hour_columns = {
+            f"h_{hour:02d}": [float(day_idx * 100 + hour) for day_idx in range(5)]
+            for hour in range(24)
+        }
+        df_source = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 5,
+                "date": pd.date_range("2023-12-20", periods=5, freq="D"),
+                "label": ["holiday"] * 5,
+                "holiday_name": [f"Holiday {idx}" for idx in range(5)],
+                "holiday_type": [pd.NA] * 5,
+                "is_declared_holiday": [True] * 5,
+                "is_outlier": [False] * 5,
+                "outlier_score": [np.nan] * 5,
+                **hour_columns,
+            }
+        )
+
+        def fake_special_mask(*args, **kwargs):
+            return pd.Series([True] * len(df_source), index=df_source.index)
+
+        def fake_evaluate_fold(**kwargs):
+            return {
+                "target_date": pd.Timestamp(kwargs["target_date"]).date().isoformat(),
+                "mae": 1.0,
+                "mape_pct": 2.0,
+                "selected_analogs": 3,
+                "fail": False,
+                "train_days": 3,
+                "train_special_days": 3,
+            }
+
+        with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(
+            analog_holidays_module,
+            "build_special_day_daily_mask",
+            side_effect=fake_special_mask,
+        ), patch.object(
+            analog_holidays_module,
+            "_evaluate_analog_holiday_fold",
+            side_effect=fake_evaluate_fold,
+        ):
+            result = analog_holidays_module.tune_analog_holidays_optuna(
+                unique_id="SEN_demand_SIN",
+                train_end="2023-12-25",
+                n_trials=1,
+                timeout_sec=60,
+                max_eval_dates=2,
+                typedist_choices=["pearson"],
+                typereg_choices=["RF"],
+                random_seed=7,
+                special_labels=("holiday",),
+            )
+
+        self.assertEqual(result.best_config["typereg"], "RF")
+        self.assertEqual(set(result.best_config["regressor_params"].keys()), {
+            "n_estimators",
+            "max_depth",
+            "min_samples_leaf",
+        })
+        self.assertIn(result.best_config["regressor_params"]["n_estimators"], {100, 200, 300})
+        self.assertIn(result.best_config["regressor_params"]["max_depth"], {4, 8, 12})
+        self.assertIn(result.best_config["regressor_params"]["min_samples_leaf"], {1, 2, 4})
+
+    def test_tune_analog_holidays_optuna_caps_k_to_realizable_analog_pool(self) -> None:
+        import optuna
+        import analog_holidays.analog.analog_holidays as analog_holidays_module
+
+        hour_columns = {
+            f"h_{hour:02d}": [float(day_idx * 100 + hour) for day_idx in range(5)]
+            for hour in range(24)
+        }
+        df_source = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 5,
+                "date": pd.date_range("2023-12-20", periods=5, freq="D"),
+                "label": ["holiday"] * 5,
+                "holiday_name": [f"Holiday {idx}" for idx in range(5)],
+                "holiday_type": [pd.NA] * 5,
+                "is_declared_holiday": [True] * 5,
+                "is_outlier": [False] * 5,
+                "outlier_score": [np.nan] * 5,
+                **hour_columns,
+            }
+        )
+
+        def fake_special_mask(df, *args, **kwargs):
+            return pd.Series([True] * len(df), index=df.index)
+
+        def fake_evaluate_fold(**kwargs):
+            return {
+                "target_date": pd.Timestamp(kwargs["target_date"]).date().isoformat(),
+                "mae": 1.0,
+                "mape_pct": 2.0,
+                "selected_analogs": 4,
+                "fail": False,
+                "train_days": 3,
+                "train_special_days": 3,
+            }
+
+        def fake_count_realizable_analog_positions(**kwargs):
+            return 4
+
+        k_bounds: list[tuple[int, int]] = []
+        original_suggest_int = optuna.trial._trial.Trial.suggest_int
+
+        def recording_suggest_int(self, name, low, high, *args, **kwargs):
+            if name == "k":
+                k_bounds.append((int(low), int(high)))
+            return original_suggest_int(self, name, low, high, *args, **kwargs)
+
+        with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(
+            analog_holidays_module,
+            "build_special_day_daily_mask",
+            side_effect=fake_special_mask,
+        ), patch.object(
+            analog_holidays_module,
+            "_evaluate_analog_holiday_fold",
+            side_effect=fake_evaluate_fold,
+        ), patch.object(
+            analog_holidays_module,
+            "_count_realizable_analog_positions",
+            side_effect=fake_count_realizable_analog_positions,
+        ), patch.object(
+            optuna.trial._trial.Trial,
+            "suggest_int",
+            new=recording_suggest_int,
+        ):
+            result = analog_holidays_module.tune_analog_holidays_optuna(
+                unique_id="SEN_demand_SIN",
+                train_end="2023-12-25",
+                n_trials=1,
+                timeout_sec=60,
+                max_eval_dates=2,
+                typedist_choices=["pearson"],
+                typereg_choices=["PCR"],
+                random_seed=7,
+                special_labels=("holiday",),
+            )
+
+        self.assertTrue(k_bounds)
+        self.assertEqual(k_bounds[0], (3, 4))
+        self.assertLessEqual(result.best_config["k"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

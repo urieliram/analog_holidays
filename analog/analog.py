@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import time
 import warnings
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -55,6 +55,11 @@ from sklearn.linear_model import (
     Ridge,
 )
 from sklearn.pipeline import make_pipeline
+
+try:
+    from lightgbm import LGBMRegressor
+except ImportError:
+    LGBMRegressor = None
 
 
 # =====================================================================
@@ -90,11 +95,39 @@ def _olsstep(X, Y, X2, pi_step=0.001):
     return pred
 
 
-def _fit_predict(ModelClass, X, Y, X2, **kwargs):
+def _merge_regressor_params(
+    default_params: Optional[Mapping[str, object]] = None,
+    regressor_params: Optional[Mapping[str, object]] = None,
+) -> dict[str, object]:
+    """Merge default model kwargs with Optuna-tuned overrides."""
+    merged = dict(default_params or {})
+    if regressor_params:
+        merged.update({str(key): value for key, value in regressor_params.items()})
+    return merged
+
+
+def _fit_predict(ModelClass, X, Y, X2, regressor_params: Optional[Mapping[str, object]] = None, **kwargs):
     """Ajusta un regresor sklearn genérico y devuelve la predicción."""
-    model = ModelClass(**kwargs)
+    model = ModelClass(**_merge_regressor_params(kwargs, regressor_params))
     model.fit(X, Y)
     return model.predict(X2)
+
+
+def _fit_predict_lightgbm(X, Y, X2, regressor_params: Optional[Mapping[str, object]] = None):
+    """Fit LightGBM only when the optional dependency is installed."""
+    if LGBMRegressor is None:
+        raise ImportError("Install lightgbm to use typereg='LGBM'.")
+
+    return _fit_predict(
+        LGBMRegressor,
+        X,
+        Y,
+        X2,
+        regressor_params=regressor_params,
+        random_state=42,
+        n_jobs=-1,
+        verbosity=-1,
+    )
 
 
 def _voting_ensemble(X, Y, X2):
@@ -126,24 +159,24 @@ def _voting_linear(X, Y, X2):
 
 # Mapa de regresores disponibles
 _REGRESSORS = {
-    'OLSstep': lambda X, Y, X2, nc: _olsstep(X, Y, X2),
-    'RF': lambda X, Y, X2, nc: _fit_predict(
-        RandomForestRegressor, X, Y, X2, random_state=42),
-    'Boosting': lambda X, Y, X2, nc: _fit_predict(
-        GradientBoostingRegressor, X, Y, X2, random_state=42),
-    'Bagging': lambda X, Y, X2, nc: _fit_predict(
-        BaggingRegressor, X, Y, X2, random_state=42),
-    'AdaBoost': lambda X, Y, X2, nc: _fit_predict(
-        AdaBoostRegressor, X, Y, X2, random_state=42),
-    'LinearReg': lambda X, Y, X2, nc: _fit_predict(
-        LinearRegression, X, Y, X2),
-    'BayesRidge': lambda X, Y, X2, nc: _fit_predict(
-        BayesianRidge, X, Y, X2, compute_score=True),
-    'LassoReg': lambda X, Y, X2, nc: _fit_predict(
-        Lasso, X, Y, X2, alpha=0.1, max_iter=10000),
-    'RidgeReg': lambda X, Y, X2, nc: _fit_predict(
-        Ridge, X, Y, X2, alpha=0.1),
-    'PLS': lambda X, Y, X2, nc: (
+    'OLSstep': lambda X, Y, X2, nc, rp=None: _olsstep(X, Y, X2),
+    'RF': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        RandomForestRegressor, X, Y, X2, regressor_params=rp, random_state=42, n_jobs=-1),
+    'Boosting': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        GradientBoostingRegressor, X, Y, X2, regressor_params=rp, random_state=42),
+    'Bagging': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        BaggingRegressor, X, Y, X2, regressor_params=rp, random_state=42),
+    'AdaBoost': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        AdaBoostRegressor, X, Y, X2, regressor_params=rp, random_state=42),
+    'LinearReg': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        LinearRegression, X, Y, X2, regressor_params=rp),
+    'BayesRidge': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        BayesianRidge, X, Y, X2, regressor_params=rp, compute_score=True),
+    'LassoReg': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        Lasso, X, Y, X2, regressor_params=rp, alpha=0.1, max_iter=10000),
+    'RidgeReg': lambda X, Y, X2, nc, rp=None: _fit_predict(
+        Ridge, X, Y, X2, regressor_params=rp, alpha=0.1),
+    'PLS': lambda X, Y, X2, nc, rp=None: (
         (lambda X_, Y_, X2_, nc_:
             (lambda Xarr, Yarr:
                 PLSRegression(
@@ -157,14 +190,22 @@ _REGRESSORS = {
             )(np.asarray(X_), np.asarray(Y_))
         )(X, Y, X2, nc)
     ),
-    'PCR': lambda X, Y, X2, nc: (
+    'PCR': lambda X, Y, X2, nc, rp=None: (
         make_pipeline(
             PCA(n_components=min(nc, np.asarray(X).shape[0], np.asarray(X).shape[1])),
             LinearRegression(),
         ).fit(X, Y).predict(X2)),
-    'VotingEnsemble': lambda X, Y, X2, nc: _voting_ensemble(X, Y, X2),
-    'VotingLinear': lambda X, Y, X2, nc: _voting_linear(X, Y, X2),
+    'VotingEnsemble': lambda X, Y, X2, nc, rp=None: _voting_ensemble(X, Y, X2),
+    'VotingLinear': lambda X, Y, X2, nc, rp=None: _voting_linear(X, Y, X2),
 }
+
+if LGBMRegressor is not None:
+    _REGRESSORS['LGBM'] = lambda X, Y, X2, nc, rp=None: _fit_predict_lightgbm(
+        X,
+        Y,
+        X2,
+        regressor_params=rp,
+    )
 
 
 # =====================================================================

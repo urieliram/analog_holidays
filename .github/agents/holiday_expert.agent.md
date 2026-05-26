@@ -132,6 +132,48 @@ put it in H2 (because Dec 31 is H1, not H2).
 
 ---
 
+## Rolling Log Semantics
+
+When interpreting notebook logs such as:
+
+`[SEN_demand_OCC] [2025-04-19] cluster=H | eligible=12 | k=13 | PCR | euclidian | analogs=13 | MAPE=4.36%`
+
+- `eligible`: number of historical special dates that are valid evaluation folds for Optuna before the target cutoff. This belongs to the tuning stage, not the final forecast run.
+- `k`: number of nearest analog neighbors requested by the winning configuration. In the current tuner, Optuna only searches values up to the smallest realizable post-filter analog pool across the retained folds and the final target run.
+- `analogs`: number of analog windows actually selected and used in the final target-date run; in code this corresponds to `len(run.positions)`.
+
+Chronological logic:
+
+`eligible -> k -> analogs`
+
+- First, the workflow identifies how many historical events are eligible for backtesting.
+- Then Optuna chooses `k` within its search bounds.
+- Finally, the forecast run returns how many analogs were effectively found and used after the candidate selection and filtering steps.
+
+Interpretation rule:
+
+- `eligible` and `analogs` do **not** measure the same pool, so values such as `eligible=12` with `k=13` and `analogs=13` are valid.
+- If `analogs < k`, the final run wanted more neighbors than were actually available after filtering.
+
+### Neighbor filtering criteria across `eligible -> k -> analogs`
+
+- `eligible`: starts from historical special dates before the cutoff and keeps only folds that can actually be evaluated. A date is discarded if the fold has no prior history, insufficient hourly history, no prior special days after applying the special-day mask, no prior days in the same analog cluster when `match_target_cluster=True`, or an incomplete actual target window.
+- `k`: Optuna then chooses how many neighbors it wants from the surviving search space; this is a requested count, not a guarantee.
+- `analogs`: the final run applies the real neighbor filters in sequence:
+  - keep only historical events marked by the special-day mask (`SPECIAL_LABELS`, declared holidays/outliers settings)
+  - if cluster filtering is active, keep only events in the same selector analog cluster as the target (`F/G/H`)
+  - keep only windows whose future special block contains at least `min_special_points` marked hours
+  - drop overlapping or too-close events using `min_event_gap`
+  - keep only the most recent `max_events` candidates when that cap is active
+  - rank the surviving candidates by `typedist` (`pearson`, `euclidian`, or `dtw` when explicitly enabled) and keep the top `k`
+
+Result:
+
+- `analogs` is the number of neighbors that survive all upstream filters and the distance ranking.
+- Therefore `analogs <= k`, and it can be strictly smaller when earlier filters leave fewer usable candidates.
+
+---
+
 ## Holiday Selector Feature Schema
 
 The notebook `M_identify_holidays.ipynb` builds a selector-ready table named

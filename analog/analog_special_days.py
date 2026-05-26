@@ -127,6 +127,27 @@ def _select_special_positions(
     return positions
 
 
+def count_special_day_candidates(
+    special_days: np.ndarray,
+    vsele: int,
+    special_day_value: float = 1.0,
+    min_special_points: Optional[int] = None,
+    min_event_gap: Optional[int] = None,
+    max_events: Optional[int] = None,
+) -> int:
+    """Count realizable special-day candidate windows before k-ranking."""
+    return len(
+        _select_special_positions(
+            special_days=_coerce_special_days(special_days),
+            vsele=vsele,
+            special_day_value=special_day_value,
+            min_special_points=min_special_points,
+            min_event_gap=min_event_gap,
+            max_events=max_events,
+        )
+    )
+
+
 def _normalize_typedist(typedist: str) -> str:
     """Normalize distance aliases and validate supported options."""
     normalized = str(typedist).lower()
@@ -243,6 +264,7 @@ def analog_special_days_core(
     typedist: str = 'pearson',
     n_components: int = 3,
     typereg: str = 'PCR',
+    regressor_params: Optional[dict[str, object]] = None,
     special_day_value: float = 1.0,
     min_special_points: Optional[int] = None,
     min_event_gap: Optional[int] = None,
@@ -370,7 +392,9 @@ def analog_special_days_core(
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            prediction = np.asarray(reg_func(X, Y_list, X2, n_components)).reshape(-1)
+            prediction = np.asarray(
+                reg_func(X, Y_list, X2, n_components, regressor_params)
+            ).reshape(-1)
     except Exception:
         prediction = np.full(vsele, serie[-1])
         fail = True
@@ -392,6 +416,7 @@ def _build_pairwise_interval_scenarios(
     vsele: int,
     typereg: str,
     n_components: int,
+    regressor_params: Optional[dict[str, object]] = None,
 ) -> np.ndarray:
     """Build per-analog bivariate scenarios for interval estimation.
 
@@ -427,7 +452,7 @@ def _build_pairwise_interval_scenarios(
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 scenario = np.asarray(
-                    reg_func(x_train, target_window, x_pred, n_components)
+                    reg_func(x_train, target_window, x_pred, n_components, regressor_params)
                 ).reshape(-1)
         except Exception:
             scenario = x_future.copy()
@@ -459,6 +484,7 @@ class AnalogSpecialDays:
         typedist: str = 'pearson',
         n_components: int = 3,
         typereg: str = 'PCR',
+        regressor_params: Optional[dict[str, object]] = None,
         special_day_value: float = 1.0,
         min_special_points: Optional[int] = None,
         min_event_gap: Optional[int] = None,
@@ -471,6 +497,7 @@ class AnalogSpecialDays:
         self.typedist = _normalize_typedist(typedist)
         self.n_components = n_components
         self.typereg = typereg
+        self.regressor_params = dict(regressor_params or {})
         self.special_day_value = special_day_value
         self.min_special_points = min_special_points
         self.min_event_gap = min_event_gap
@@ -552,6 +579,7 @@ class AnalogSpecialDays:
                 typedist=self.typedist,
                 n_components=self.n_components,
                 typereg=self.typereg,
+                regressor_params=self.regressor_params,
                 special_day_value=self.special_day_value,
                 min_special_points=self.min_special_points,
                 min_event_gap=self.min_event_gap,
@@ -567,6 +595,7 @@ class AnalogSpecialDays:
                 vsele=vs,
                 typereg=self.typereg,
                 n_components=self.n_components,
+                regressor_params=self.regressor_params,
             )
 
             forecasts.extend(pred[:block_h].tolist())
@@ -618,6 +647,7 @@ class AnalogSpecialDays:
             typedist=self.typedist,
             n_components=self.n_components,
             typereg=self.typereg,
+            regressor_params=self.regressor_params,
             special_day_value=self.special_day_value,
             min_special_points=self.min_special_points,
             min_event_gap=self.min_event_gap,
@@ -633,6 +663,7 @@ class AnalogSpecialDays:
             'typedist': self.typedist,
             'n_components': self.n_components,
             'typereg': self.typereg,
+            'regressor_params': self.regressor_params.copy(),
             'special_day_value': self.special_day_value,
             'min_special_points': self.min_special_points,
             'min_event_gap': self.min_event_gap,
@@ -643,7 +674,9 @@ class AnalogSpecialDays:
 
     def set_params(self, **params) -> 'AnalogSpecialDays':
         for key, val in params.items():
-            if hasattr(self, key):
+            if key == 'regressor_params':
+                self.regressor_params = dict(val or {})
+            elif hasattr(self, key):
                 setattr(self, key, val)
             else:
                 raise ValueError(f"Unknown parameter: {key}")

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 import math
 import shutil
 from pathlib import Path
@@ -23,7 +24,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .analog_special_days import AnalogSpecialDays, analog_special_days_core
+from .analog_special_days import (
+    AnalogSpecialDays,
+    analog_special_days_core,
+    count_special_day_candidates,
+)
 from analog_holidays.audit.data_loader import HOUR_COLS
 from analog_holidays.shared.identify_holidays import load_selector_cluster_lookup
 
@@ -48,6 +53,7 @@ class AnalogHolidayRun:
     season_length: int
     k: Optional[int]
     n_components: int
+    regressor_params: dict[str, object]
     levels: list[int]
     train_df: pd.DataFrame
     target_row: Optional[pd.Series]
@@ -89,6 +95,38 @@ class AnalogHolidayBatchResult:
     runs: Dict[str, AnalogHolidayRun]
     results_df: pd.DataFrame
     metric_summary_df: pd.DataFrame
+
+
+def _coerce_regressor_params(
+    regressor_params: Optional[dict[str, object]] = None,
+) -> dict[str, object]:
+    return dict(regressor_params or {})
+
+
+def _format_regressor_params(regressor_params: Optional[dict[str, object]] = None) -> str:
+    params = _coerce_regressor_params(regressor_params)
+    return json.dumps(params, sort_keys=True) if params else "{}"
+
+
+def _suggest_optuna_regressor_params(trial, typereg: str) -> dict[str, object]:
+    if typereg == "RF":
+        return {
+            # Compact search for moderate training cost and low overfitting risk.
+            "n_estimators": int(trial.suggest_categorical("rf_n_estimators", [100, 200, 300])),
+            "max_depth": int(trial.suggest_categorical("rf_max_depth", [4, 8, 12])),
+            "min_samples_leaf": int(trial.suggest_categorical("rf_min_samples_leaf", [1, 2, 4])),
+        }
+
+    if typereg == "LGBM":
+        return {
+            # Keep only the main LightGBM controls and use a small discrete grid.
+            "n_estimators": int(trial.suggest_categorical("lgbm_n_estimators", [100, 200, 300])),
+            "learning_rate": float(trial.suggest_categorical("lgbm_learning_rate", [0.03, 0.05, 0.1])),
+            "num_leaves": int(trial.suggest_categorical("lgbm_num_leaves", [15, 31, 63])),
+            "min_child_samples": int(trial.suggest_categorical("lgbm_min_child_samples", [10, 20, 30])),
+        }
+
+    return {}
 
 
 def load_audit_source(source_path: Path | str = DEFAULT_SOURCE_PATH) -> pd.DataFrame:
@@ -313,6 +351,84 @@ def _normalize_forecast_start_offset_hours(
     return offset_hours
 
 
+def _count_realizable_analog_positions(
+    history_df: pd.DataFrame,
+    target_date: str | pd.Timestamp,
+    season_length: int,
+    special_labels: Sequence[str],
+    include_declared_holidays: bool,
+    include_outliers: bool,
+    min_special_points: Optional[int],
+    min_event_gap: Optional[int],
+    max_events: Optional[int],
+    forecast_start_offset_hours: int,
+    label_column: str,
+    selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
+    match_target_cluster: bool = False,
+) -> int:
+    """Count analog windows that remain after all upstream filters except k-ranking."""
+    target_ts = pd.Timestamp(target_date).normalize()
+    forecast_start_offset_hours = _normalize_forecast_start_offset_hours(
+        forecast_start_offset_hours
+    )
+    train_df = history_df.loc[history_df["date"] < target_ts].copy()
+
+    if train_df.empty:
+        raise ValueError(
+            f"No prior history exists before {target_ts.date()} to build analogs."
+        )
+
+    hourly_series = _truncate_hourly_history(
+        _flatten_daily_profiles(train_df),
+        forecast_start_offset_hours,
+    )
+    if len(hourly_series) < 2 * season_length + 1:
+        raise ValueError(
+            f"Insufficient history before {target_ts.date()} for season_length={season_length}."
+        )
+
+    special_mask = build_special_day_daily_mask(
+        train_df,
+        special_labels=special_labels,
+        include_declared_holidays=include_declared_holidays,
+        include_outliers=include_outliers,
+        label_column=label_column,
+    )
+    if match_target_cluster:
+        special_mask = _restrict_daily_mask_to_target_cluster(
+            special_mask,
+            train_df,
+            target_ts,
+            selector_cluster_lookup,
+        )
+    if int(special_mask.sum()) == 0:
+        raise ValueError(
+            f"No prior special days exist before {target_ts.date()} to build analogs."
+        )
+
+    special_hourly_mask = np.repeat(
+        special_mask.astype(float).to_numpy(),
+        len(HOUR_COLS),
+    )
+    special_hourly_mask = _truncate_hourly_history(
+        special_hourly_mask,
+        forecast_start_offset_hours,
+    )
+    analog_count = count_special_day_candidates(
+        special_days=special_hourly_mask,
+        vsele=season_length,
+        min_special_points=min_special_points,
+        min_event_gap=min_event_gap,
+        max_events=max_events,
+    )
+    if analog_count < 1:
+        raise ValueError(
+            f"No realizable analog windows remain before {target_ts.date()} after filtering."
+        )
+
+    return int(analog_count)
+
+
 def _truncate_hourly_history(
     hourly_values: np.ndarray,
     forecast_start_offset_hours: int,
@@ -370,6 +486,7 @@ def run_analog_holidays(
     typedist: str = "pearson",
     typereg: str = "PCR",
     n_components: int = 3,
+    regressor_params: Optional[dict[str, object]] = None,
     levels: Optional[Sequence[int]] = None,
     special_labels: Sequence[str] = ("holiday", "special_day"),
     include_declared_holidays: bool = False,
@@ -386,6 +503,7 @@ def run_analog_holidays(
 ) -> AnalogHolidayRun:
     """Run an offset-aware AnalogSpecialDays forecast for a holiday date."""
     target_ts = pd.Timestamp(target_date).normalize()
+    regressor_params = _coerce_regressor_params(regressor_params)
     forecast_start_offset_hours = _normalize_forecast_start_offset_hours(
         forecast_start_offset_hours
     )
@@ -468,6 +586,7 @@ def run_analog_holidays(
         typedist=typedist,
         n_components=n_components,
         typereg=typereg,
+        regressor_params=regressor_params,
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
@@ -487,6 +606,7 @@ def run_analog_holidays(
         typedist=typedist,
         n_components=n_components,
         typereg=typereg,
+        regressor_params=regressor_params,
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
@@ -521,6 +641,7 @@ def run_analog_holidays(
         season_length=season_length,
         k=k,
         n_components=n_components,
+        regressor_params=regressor_params,
         levels=levels,
         train_df=train_df,
         target_row=target_row,
@@ -558,6 +679,7 @@ def tune_analog_holidays_optuna(
     initial_typedist: str = "pearson",
     initial_typereg: str = "PCR",
     initial_n_components: int = 3,
+    initial_regressor_params: Optional[dict[str, object]] = None,
     n_trials: int = 25,
     timeout_sec: Optional[int] = 900,
     max_eval_dates: Optional[int] = 12,
@@ -581,6 +703,7 @@ def tune_analog_holidays_optuna(
     import optuna
 
     train_end_ts = pd.Timestamp(train_end)
+    initial_regressor_params = _coerce_regressor_params(initial_regressor_params)
     df = load_audit_source(source_path)
     df_region = _get_region_df(df, unique_id)
     complete_mask = _complete_day_mask(df_region)
@@ -599,26 +722,24 @@ def tune_analog_holidays_optuna(
         )
 
     # ── Build search spaces ───────────────────────────────────────────────────
-    # typedist_choices: always include Pearson correlation and Euclidean distance;
-    # DTW is appended only when dtw-python is installed so that missing the
-    # optional dependency does not break the tuning run.
+    # typedist_choices: keep the default distance search compact for fast
+    # rolling tuning. DTW remains available only via an explicit override.
     if typedist_choices is None:
         resolved_typedist_choices = ["pearson", "euclidian"]
-        if importlib.util.find_spec("dtw") is not None:
-            resolved_typedist_choices.append("dtw")
     else:
         resolved_typedist_choices = [str(choice) for choice in typedist_choices]
 
-    # typereg_choices: full regressor menu by default; override via typereg_choices
-    # to restrict the search to a specific subset (e.g. ["PCR", "OLSstep"]).
+    # typereg_choices: compact default search focused on the main moderate-cost
+    # regressors. Broader searches remain available via explicit overrides.
+    lightgbm_available = importlib.util.find_spec("lightgbm") is not None
     resolved_typereg_choices = [
         "PCR",
         "PLS",
-        "RidgeReg",
-        "LassoReg",
-        "RF",
-        "OLSstep",
     ] if typereg_choices is None else [str(choice) for choice in typereg_choices]
+    if typereg_choices is None and lightgbm_available:
+        resolved_typereg_choices.append("LGBM")
+    if "LGBM" in resolved_typereg_choices and not lightgbm_available:
+        raise ImportError("Install lightgbm to include typereg='LGBM' in Optuna tuning.")
 
     special_mask_history = build_special_day_daily_mask(
         history_df,
@@ -636,14 +757,14 @@ def tune_analog_holidays_optuna(
 
     optuna_min_k = 3
     available_special_days = int(special_mask_history.sum())
-    if available_special_days < optuna_min_k:
+    if available_special_days < 1:
         raise ValueError(
-            f"At least {optuna_min_k} labeled special days are required before the cutoff "
-            "to tune hyperparameters when k >= 3."
+            "At least 1 labeled special day is required before the cutoff "
+            "to tune hyperparameters."
         )
 
     baseline_k = optuna_min_k
-    eligible_dates: list[pd.Timestamp] = []
+    eligible_pairs: list[tuple[pd.Timestamp, int]] = []
     for candidate_date in candidate_dates:
         try:
             _evaluate_analog_holiday_fold(
@@ -654,6 +775,7 @@ def tune_analog_holidays_optuna(
                 typedist=initial_typedist,
                 typereg=initial_typereg,
                 n_components=initial_n_components,
+                regressor_params=initial_regressor_params,
                 special_labels=special_labels,
                 include_declared_holidays=include_declared_holidays,
                 include_outliers=include_outliers,
@@ -665,36 +787,80 @@ def tune_analog_holidays_optuna(
                 selector_cluster_lookup=selector_cluster_lookup,
                 match_target_cluster=match_target_cluster,
             )
-            eligible_dates.append(pd.Timestamp(candidate_date))
+            realizable_analogs = _count_realizable_analog_positions(
+                history_df=history_df,
+                target_date=candidate_date,
+                season_length=season_length,
+                special_labels=special_labels,
+                include_declared_holidays=include_declared_holidays,
+                include_outliers=include_outliers,
+                min_special_points=min_special_points,
+                min_event_gap=min_event_gap,
+                max_events=max_events,
+                forecast_start_offset_hours=forecast_start_offset_hours,
+                label_column=label_column,
+                selector_cluster_lookup=selector_cluster_lookup,
+                match_target_cluster=match_target_cluster,
+            )
+            if realizable_analogs < optuna_min_k:
+                continue
+            eligible_pairs.append((pd.Timestamp(candidate_date), realizable_analogs))
         except ValueError:
             continue
 
     if max_eval_dates is not None:
-        eligible_dates = eligible_dates[-int(max_eval_dates):]
+        eligible_pairs = eligible_pairs[-int(max_eval_dates):]
+
+    eligible_dates = [target_date for target_date, _ in eligible_pairs]
+    eligible_k_caps = [analog_count for _, analog_count in eligible_pairs]
 
     if len(eligible_dates) < 2:
         raise ValueError(
-            "At least 2 eligible special events are required before the cutoff "
-            "to tune hyperparameters."
+            f"At least 2 eligible special events with >= {optuna_min_k} realizable "
+            "analogs are required before the cutoff to tune hyperparameters."
         )
 
-    # Search bounds for k: lower bound fixed at 3; upper bound is the total
-    # number of labeled special days in the training window, capped at 24.
-    optuna_max_k = min(available_special_days, 24)
+    final_target_analog_cap = _count_realizable_analog_positions(
+        history_df=history_df,
+        target_date=train_end_ts,
+        season_length=season_length,
+        special_labels=special_labels,
+        include_declared_holidays=include_declared_holidays,
+        include_outliers=include_outliers,
+        min_special_points=min_special_points,
+        min_event_gap=min_event_gap,
+        max_events=max_events,
+        forecast_start_offset_hours=forecast_start_offset_hours,
+        label_column=label_column,
+        selector_cluster_lookup=selector_cluster_lookup,
+        match_target_cluster=match_target_cluster,
+    )
+    if final_target_analog_cap < optuna_min_k:
+        raise ValueError(
+            f"At least {optuna_min_k} realizable analogs are required for "
+            f"target_date={train_end_ts.date()} after applying the special-day filters."
+        )
+
+    # Search bounds for k: lower bound stays fixed at 3, while the upper bound
+    # is the smallest realizable analog pool across retained evaluation folds
+    # and the final target run, capped at 24.
+    optuna_max_k = min(final_target_analog_cap, min(eligible_k_caps), 24)
 
     def objective(trial) -> float:
         # ── Search grid ───────────────────────────────────────────────────────
         # typereg   – regression model used to map X-neighbors onto Y.
-        #             All sklearn-compatible regressors in _REGRESSORS are eligible.
+        #             The default grid is intentionally compact; broader menus can
+        #             still be passed explicitly via typereg_choices.
         typereg = trial.suggest_categorical("typereg", resolved_typereg_choices)
 
         # typedist  – distance / similarity metric for ranking analog candidates.
-        #             "dtw" is only included when dtw-python is installed.
+        #             The default grid avoids DTW to keep runtime bounded.
         typedist = trial.suggest_categorical("typedist", resolved_typedist_choices)
 
         # k         – number of nearest special-day analogs to keep.
-        #             Lower bound is fixed at 3; upper bound is the total number
-        #             of labeled special days in the training window, capped at 24.
+        #             Lower bound is fixed at 3; upper bound is the smallest
+        #             realizable analog pool across the retained folds and the
+        #             final target run, capped at 24.
         k = trial.suggest_int("k", optuna_min_k, optuna_max_k)
 
         # n_components – latent dimensions for PCR / PLS only.
@@ -705,6 +871,8 @@ def tune_analog_holidays_optuna(
             n_components = trial.suggest_int("n_components", 2, max_components)
         else:
             n_components = int(initial_n_components)
+
+        regressor_params = _suggest_optuna_regressor_params(trial, typereg)
 
         # dtw_window_frac – Sakoe-Chiba band width expressed as a fraction of
         #                   the season length (vsele).  A value of 1.0 means no
@@ -730,6 +898,7 @@ def tune_analog_holidays_optuna(
                         typedist=typedist,
                         typereg=typereg,
                         n_components=n_components,
+                        regressor_params=regressor_params,
                         special_labels=special_labels,
                         include_declared_holidays=include_declared_holidays,
                         include_outliers=include_outliers,
@@ -758,6 +927,7 @@ def tune_analog_holidays_optuna(
         trial.set_user_attr("mean_mae", mean_mae)
         trial.set_user_attr("mean_mape_pct", mean_mape)
         trial.set_user_attr("fail_rate", fail_rate)
+        trial.set_user_attr("regressor_params", regressor_params)
         return mean_mae + fail_rate * 1000.0
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -775,10 +945,12 @@ def tune_analog_holidays_optuna(
     best_params = study.best_params.copy()
     best_config = {
         "k": int(best_params["k"]),
+        "k_range": (int(optuna_min_k), int(optuna_max_k)),
         "typedist": str(best_params["typedist"]),
         "typereg": str(best_params["typereg"]),
         "n_components": int(best_params.get("n_components", initial_n_components)),
         "dtw_window": float(best_params["dtw_window_frac"]) if "dtw_window_frac" in best_params else None,
+        "regressor_params": _coerce_regressor_params(best_trial.user_attrs.get("regressor_params")),
     }
     fold_metrics_df = pd.DataFrame(best_trial.user_attrs.get("fold_metrics", []))
     summary_df = pd.DataFrame(
@@ -789,11 +961,14 @@ def tune_analog_holidays_optuna(
             {"param": "best_mean_mae", "value": round(best_trial.user_attrs["mean_mae"], 6)},
             {"param": "best_mean_mape_pct", "value": round(best_trial.user_attrs["mean_mape_pct"], 3)},
             {"param": "best_fail_rate", "value": round(best_trial.user_attrs["fail_rate"], 3)},
+            {"param": "OPTUNA_MIN_K", "value": int(optuna_min_k)},
+            {"param": "OPTUNA_MAX_K", "value": int(optuna_max_k)},
             {"param": "K", "value": best_config["k"]},
             {"param": "TYPEDIST", "value": best_config["typedist"]},
             {"param": "TYPEREG", "value": best_config["typereg"]},
             {"param": "N_COMPONENTS", "value": best_config["n_components"]},
             {"param": "DTW_WINDOW", "value": best_config["dtw_window"]},
+            {"param": "REGRESSOR_PARAMS", "value": _format_regressor_params(best_config["regressor_params"])},
         ]
     )
 
@@ -816,6 +991,7 @@ def run_analog_holidays_batch(
     typedist: str = "pearson",
     typereg: str = "PCR",
     n_components: int = 3,
+    regressor_params: Optional[dict[str, object]] = None,
     levels: Optional[Sequence[int]] = None,
     special_labels: Sequence[str] = ("holiday", "special_day"),
     include_declared_holidays: bool = False,
@@ -830,6 +1006,7 @@ def run_analog_holidays_batch(
     match_target_cluster: bool = False,
 ) -> AnalogHolidayBatchResult:
     """Run AnalogSpecialDays over a batch of target dates and summarize results."""
+    regressor_params = _coerce_regressor_params(regressor_params)
     target_items = _normalize_batch_target_items(target_dates)
     selector_cluster_lookup = _resolve_selector_cluster_lookup(
         selector_features_path=selector_features_path,
@@ -851,6 +1028,7 @@ def run_analog_holidays_batch(
                 typedist=typedist,
                 typereg=typereg,
                 n_components=n_components,
+                regressor_params=regressor_params,
                 levels=levels,
                 special_labels=special_labels,
                 include_declared_holidays=include_declared_holidays,
@@ -901,6 +1079,7 @@ def run_analog_holidays_batch(
                     "typedist": run.typedist,
                     "typereg": run.typereg,
                     "n_components": run.n_components,
+                    "regressor_params": _format_regressor_params(run.regressor_params),
                     "error": None,
                 }
             )
@@ -927,6 +1106,7 @@ def run_analog_holidays_batch(
                     "typedist": typedist,
                     "typereg": typereg,
                     "n_components": n_components,
+                    "regressor_params": _format_regressor_params(regressor_params),
                     "error": str(exc),
                 }
             )
@@ -1100,6 +1280,7 @@ def build_run_summary(run: AnalogHolidayRun) -> pd.DataFrame:
         ("target_holiday_name", target_name),
         ("typedist", run.typedist),
         ("typereg", run.typereg),
+        ("regressor_params", _format_regressor_params(run.regressor_params)),
         ("k_neighbors", run.k),
         ("train_days", len(run.train_df)),
         ("special_days_train", int(run.special_day_daily_mask.sum())),
@@ -1758,6 +1939,7 @@ def _evaluate_analog_holiday_fold(
     typedist: str,
     typereg: str,
     n_components: int,
+    regressor_params: Optional[dict[str, object]],
     special_labels: Sequence[str],
     include_declared_holidays: bool,
     include_outliers: bool,
@@ -1772,6 +1954,7 @@ def _evaluate_analog_holiday_fold(
 ) -> dict[str, object]:
     """Evaluate a single historical special date as a tuning fold."""
     target_ts = pd.Timestamp(target_date).normalize()
+    regressor_params = _coerce_regressor_params(regressor_params)
     forecast_start_offset_hours = _normalize_forecast_start_offset_hours(
         forecast_start_offset_hours
     )
@@ -1834,6 +2017,7 @@ def _evaluate_analog_holiday_fold(
         typedist=typedist,
         n_components=n_components,
         typereg=typereg,
+        regressor_params=regressor_params,
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
