@@ -610,13 +610,14 @@ def tune_analog_holidays_optuna(
         resolved_typedist_choices = [str(choice) for choice in typedist_choices]
 
     # typereg_choices: full regressor menu by default; override via typereg_choices
-    # to restrict the search to a specific subset (e.g. ["PCR", "Boosting"]).
+    # to restrict the search to a specific subset (e.g. ["PCR", "OLSstep"]).
     resolved_typereg_choices = [
         "PCR",
         "PLS",
         "RidgeReg",
         "LassoReg",
-        "Boosting",
+        "RF",
+        "OLSstep",
     ] if typereg_choices is None else [str(choice) for choice in typereg_choices]
 
     special_mask_history = build_special_day_daily_mask(
