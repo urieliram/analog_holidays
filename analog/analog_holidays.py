@@ -26,6 +26,7 @@ import pandas as pd
 
 from .analog_special_days import (
     AnalogSpecialDays,
+    _normalize_scale_method,
     analog_special_days_core,
     count_special_day_candidates,
 )
@@ -50,6 +51,7 @@ class AnalogHolidayRun:
     target_has_complete_profile: bool
     typedist: str
     typereg: str
+    scale_method: Optional[str]
     season_length: int
     k: Optional[int]
     n_components: int
@@ -127,6 +129,28 @@ def _suggest_optuna_regressor_params(trial, typereg: str) -> dict[str, object]:
         }
 
     return {}
+
+
+def _resolve_scale_method_choices(
+    scale_method_choices: Optional[Sequence[Optional[str] | str]] = None,
+) -> tuple[Optional[str], ...]:
+    if scale_method_choices is None:
+        return ()
+
+    resolved: list[Optional[str]] = []
+    seen: set[Optional[str]] = set()
+    for choice in scale_method_choices:
+        normalized = _normalize_scale_method(choice)
+        if normalized in seen:
+            continue
+        resolved.append(normalized)
+        seen.add(normalized)
+
+    if not resolved:
+        raise ValueError(
+            "scale_method_choices must contain at least one valid option."
+        )
+    return tuple(resolved)
 
 
 def load_audit_source(source_path: Path | str = DEFAULT_SOURCE_PATH) -> pd.DataFrame:
@@ -485,6 +509,7 @@ def run_analog_holidays(
     k: Optional[int] = None,
     typedist: str = "pearson",
     typereg: str = "PCR",
+    scale_method: Optional[str] = None,
     n_components: int = 3,
     regressor_params: Optional[dict[str, object]] = None,
     levels: Optional[Sequence[int]] = None,
@@ -587,6 +612,7 @@ def run_analog_holidays(
         n_components=n_components,
         typereg=typereg,
         regressor_params=regressor_params,
+        scale_method=scale_method,
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
@@ -607,6 +633,7 @@ def run_analog_holidays(
         n_components=n_components,
         typereg=typereg,
         regressor_params=regressor_params,
+        scale_method=scale_method,
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
@@ -638,6 +665,7 @@ def run_analog_holidays(
         target_has_complete_profile=target_has_complete_profile,
         typedist=typedist,
         typereg=typereg,
+        scale_method=scale_method,
         season_length=season_length,
         k=k,
         n_components=n_components,
@@ -678,6 +706,8 @@ def tune_analog_holidays_optuna(
     initial_k: Optional[int] = None,
     initial_typedist: str = "pearson",
     initial_typereg: str = "PCR",
+    scale_method: Optional[str] = None,
+    scale_method_choices: Optional[Sequence[Optional[str] | str]] = None,
     initial_n_components: int = 3,
     initial_regressor_params: Optional[dict[str, object]] = None,
     n_trials: int = 25,
@@ -703,6 +733,8 @@ def tune_analog_holidays_optuna(
     import optuna
 
     train_end_ts = pd.Timestamp(train_end)
+    scale_method = _normalize_scale_method(scale_method)
+    resolved_scale_method_choices = _resolve_scale_method_choices(scale_method_choices)
     initial_regressor_params = _coerce_regressor_params(initial_regressor_params)
     df = load_audit_source(source_path)
     df_region = _get_region_df(df, unique_id)
@@ -730,14 +762,13 @@ def tune_analog_holidays_optuna(
         resolved_typedist_choices = [str(choice) for choice in typedist_choices]
 
     # typereg_choices: compact default search focused on the main moderate-cost
-    # regressors. Broader searches remain available via explicit overrides.
+    # regressors. Broader searches, including LGBM, remain available only via
+    # explicit overrides.
     lightgbm_available = importlib.util.find_spec("lightgbm") is not None
     resolved_typereg_choices = [
         "PCR",
         "PLS",
     ] if typereg_choices is None else [str(choice) for choice in typereg_choices]
-    if typereg_choices is None and lightgbm_available:
-        resolved_typereg_choices.append("LGBM")
     if "LGBM" in resolved_typereg_choices and not lightgbm_available:
         raise ImportError("Install lightgbm to include typereg='LGBM' in Optuna tuning.")
 
@@ -774,6 +805,7 @@ def tune_analog_holidays_optuna(
                 k=baseline_k,
                 typedist=initial_typedist,
                 typereg=initial_typereg,
+                scale_method=scale_method,
                 n_components=initial_n_components,
                 regressor_params=initial_regressor_params,
                 special_labels=special_labels,
@@ -857,6 +889,13 @@ def tune_analog_holidays_optuna(
         #             The default grid avoids DTW to keep runtime bounded.
         typedist = trial.suggest_categorical("typedist", resolved_typedist_choices)
 
+        if resolved_scale_method_choices:
+            resolved_scale_method = _normalize_scale_method(
+                trial.suggest_categorical("scale_method", resolved_scale_method_choices)
+            )
+        else:
+            resolved_scale_method = scale_method
+
         # k         – number of nearest special-day analogs to keep.
         #             Lower bound is fixed at 3; upper bound is the smallest
         #             realizable analog pool across the retained folds and the
@@ -897,6 +936,7 @@ def tune_analog_holidays_optuna(
                         k=k,
                         typedist=typedist,
                         typereg=typereg,
+                        scale_method=resolved_scale_method,
                         n_components=n_components,
                         regressor_params=regressor_params,
                         special_labels=special_labels,
@@ -943,11 +983,13 @@ def tune_analog_holidays_optuna(
 
     best_trial = study.best_trial
     best_params = study.best_params.copy()
+    best_scale_method = _normalize_scale_method(best_params.get("scale_method", scale_method))
     best_config = {
         "k": int(best_params["k"]),
         "k_range": (int(optuna_min_k), int(optuna_max_k)),
         "typedist": str(best_params["typedist"]),
         "typereg": str(best_params["typereg"]),
+        "scale_method": best_scale_method,
         "n_components": int(best_params.get("n_components", initial_n_components)),
         "dtw_window": float(best_params["dtw_window_frac"]) if "dtw_window_frac" in best_params else None,
         "regressor_params": _coerce_regressor_params(best_trial.user_attrs.get("regressor_params")),
@@ -963,9 +1005,11 @@ def tune_analog_holidays_optuna(
             {"param": "best_fail_rate", "value": round(best_trial.user_attrs["fail_rate"], 3)},
             {"param": "OPTUNA_MIN_K", "value": int(optuna_min_k)},
             {"param": "OPTUNA_MAX_K", "value": int(optuna_max_k)},
+            {"param": "SCALE_METHOD_CHOICES", "value": list(resolved_scale_method_choices) if resolved_scale_method_choices else None},
             {"param": "K", "value": best_config["k"]},
             {"param": "TYPEDIST", "value": best_config["typedist"]},
             {"param": "TYPEREG", "value": best_config["typereg"]},
+            {"param": "SCALE_METHOD", "value": best_config["scale_method"]},
             {"param": "N_COMPONENTS", "value": best_config["n_components"]},
             {"param": "DTW_WINDOW", "value": best_config["dtw_window"]},
             {"param": "REGRESSOR_PARAMS", "value": _format_regressor_params(best_config["regressor_params"])},
@@ -990,6 +1034,7 @@ def run_analog_holidays_batch(
     k: Optional[int] = None,
     typedist: str = "pearson",
     typereg: str = "PCR",
+    scale_method: Optional[str] = None,
     n_components: int = 3,
     regressor_params: Optional[dict[str, object]] = None,
     levels: Optional[Sequence[int]] = None,
@@ -1027,6 +1072,7 @@ def run_analog_holidays_batch(
                 k=k,
                 typedist=typedist,
                 typereg=typereg,
+                scale_method=scale_method,
                 n_components=n_components,
                 regressor_params=regressor_params,
                 levels=levels,
@@ -1280,6 +1326,7 @@ def build_run_summary(run: AnalogHolidayRun) -> pd.DataFrame:
         ("target_holiday_name", target_name),
         ("typedist", run.typedist),
         ("typereg", run.typereg),
+        ("scale_method", run.scale_method),
         ("regressor_params", _format_regressor_params(run.regressor_params)),
         ("k_neighbors", run.k),
         ("train_days", len(run.train_df)),
@@ -1938,6 +1985,7 @@ def _evaluate_analog_holiday_fold(
     k: Optional[int],
     typedist: str,
     typereg: str,
+    scale_method: Optional[str],
     n_components: int,
     regressor_params: Optional[dict[str, object]],
     special_labels: Sequence[str],
@@ -2018,6 +2066,7 @@ def _evaluate_analog_holiday_fold(
         n_components=n_components,
         typereg=typereg,
         regressor_params=regressor_params,
+        scale_method=scale_method,
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,

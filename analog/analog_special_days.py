@@ -162,6 +162,61 @@ def _normalize_typedist(typedist: str) -> str:
     return normalized
 
 
+def _normalize_scale_method(scale_method: Optional[str]) -> Optional[str]:
+    """Normalize the optional scaling strategy used before distance ranking."""
+    if scale_method is None:
+        return None
+
+    normalized = str(scale_method).strip().lower()
+    if normalized in {'', 'none', 'identity'}:
+        return None
+
+    valid = {'standard', 'minmax'}
+    if normalized not in valid:
+        raise ValueError(
+            f"scale_method='{scale_method}' is not recognized. Options: {sorted(valid)}"
+        )
+    return normalized
+
+
+def _fit_series_scaler(values: np.ndarray, scale_method: Optional[str]) -> dict[str, float]:
+    """Fit a simple 1-D scaler on the working series."""
+    method = _normalize_scale_method(scale_method)
+    arr = np.asarray(values, dtype=np.float64)
+
+    if method is None:
+        return {'method': 'identity', 'offset': 0.0, 'scale': 1.0}
+
+    if method == 'standard':
+        offset = float(np.nanmean(arr)) if len(arr) else 0.0
+        scale = float(np.nanstd(arr)) if len(arr) else 1.0
+        if not np.isfinite(scale) or scale <= 0:
+            scale = 1.0
+        return {'method': method, 'offset': offset, 'scale': scale}
+
+    min_val = float(np.nanmin(arr)) if len(arr) else 0.0
+    max_val = float(np.nanmax(arr)) if len(arr) else 1.0
+    scale = max_val - min_val
+    if not np.isfinite(scale) or scale <= 0:
+        scale = 1.0
+    return {'method': method, 'offset': min_val, 'scale': scale}
+
+
+def _transform_with_scaler(values: np.ndarray, scaler: dict[str, float]) -> np.ndarray:
+    """Apply the fitted 1-D scaler to an array."""
+    arr = np.asarray(values, dtype=np.float64)
+    scale = float(scaler.get('scale', 1.0))
+    if not np.isfinite(scale) or scale == 0.0:
+        scale = 1.0
+    return (arr - float(scaler.get('offset', 0.0))) / scale
+
+
+def _inverse_transform_with_scaler(values: np.ndarray, scaler: dict[str, float]) -> np.ndarray:
+    """Map scaled predictions back to the original demand scale."""
+    arr = np.asarray(values, dtype=np.float64)
+    return arr * float(scaler.get('scale', 1.0)) + float(scaler.get('offset', 0.0))
+
+
 def _select_k_similar_positions(
     serie: np.ndarray,
     positions: List[int],
@@ -270,6 +325,7 @@ def analog_special_days_core(
     min_event_gap: Optional[int] = None,
     max_events: Optional[int] = None,
     dtw_window: Optional[float] = None,
+    scale_method: Optional[str] = None,
 ) -> Tuple[np.ndarray, float, float, bool, List[int], np.ndarray]:
     """
     Analog forecast using preselected special days.
@@ -318,6 +374,7 @@ def analog_special_days_core(
     serie = np.asarray(serie, dtype=np.float64)
     special_days = _coerce_special_days(special_days)
     typedist = _normalize_typedist(typedist)
+    scale_method = _normalize_scale_method(scale_method)
 
     n = len(serie)
     history_len = len(special_days)
@@ -337,8 +394,11 @@ def analog_special_days_core(
             np.full((1, vsele), serie[-1]),
         )
 
-    Y = serie[n - vsele:n]
+    scaler = _fit_series_scaler(serie, scale_method)
+    scaled_serie = _transform_with_scaler(serie, scaler)
+    Y = scaled_serie[n - vsele:n]
     history_serie = serie[:history_len]
+    history_serie_scaled = scaled_serie[:history_len]
     candidate_positions = _select_special_positions(
         special_days=special_days,
         vsele=vsele,
@@ -348,7 +408,7 @@ def analog_special_days_core(
         max_events=max_events,
     )
     positions = _select_k_similar_positions(
-        serie=history_serie,
+        serie=history_serie_scaled,
         positions=candidate_positions,
         target_window=Y,
         vsele=vsele,
@@ -358,11 +418,15 @@ def analog_special_days_core(
     )
 
     neighbors = np.array(
-        [history_serie[pos:pos + vsele] for pos in positions],
+        [history_serie_scaled[pos:pos + vsele] for pos in positions],
+        dtype=np.float64,
+    )
+    neighbors2_raw = np.array(
+        [history_serie[pos + vsele:pos + 2 * vsele] for pos in positions],
         dtype=np.float64,
     )
     neighbors2 = np.array(
-        [history_serie[pos + vsele:pos + 2 * vsele] for pos in positions],
+        [history_serie_scaled[pos + vsele:pos + 2 * vsele] for pos in positions],
         dtype=np.float64,
     )
     t_sel = time.time() - t0
@@ -401,11 +465,14 @@ def analog_special_days_core(
 
     t_reg = time.time() - t0 - t_sel
 
+    if not fail:
+        prediction = _inverse_transform_with_scaler(prediction, scaler)
+
     if len(prediction) == 0 or prediction.shape[0] != vsele:
         prediction = np.full(vsele, serie[-1])
         fail = True
 
-    return prediction, t_sel, t_reg, fail, positions, neighbors2
+    return prediction, t_sel, t_reg, fail, positions, neighbors2_raw
 
 
 def _build_pairwise_interval_scenarios(
@@ -417,6 +484,7 @@ def _build_pairwise_interval_scenarios(
     typereg: str,
     n_components: int,
     regressor_params: Optional[dict[str, object]] = None,
+    scale_method: Optional[str] = None,
 ) -> np.ndarray:
     """Build per-analog bivariate scenarios for interval estimation.
 
@@ -436,6 +504,8 @@ def _build_pairwise_interval_scenarios(
 
     history_serie = np.asarray(serie[:history_len], dtype=np.float64)
     target_window = np.asarray(serie[-vsele:], dtype=np.float64)
+    scaler = _fit_series_scaler(np.asarray(serie, dtype=np.float64), scale_method)
+    target_window_scaled = _transform_with_scaler(target_window, scaler)
     scenarios: list[np.ndarray] = []
 
     for idx, pos in enumerate(positions[: len(neighbors2)]):
@@ -445,15 +515,16 @@ def _build_pairwise_interval_scenarios(
         if len(x_hist) != vsele or len(x_future) == 0:
             continue
 
-        x_train = x_hist.reshape(-1, 1)
-        x_pred = x_future.reshape(-1, 1)
+        x_train = _transform_with_scaler(x_hist, scaler).reshape(-1, 1)
+        x_pred = _transform_with_scaler(x_future, scaler).reshape(-1, 1)
 
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 scenario = np.asarray(
-                    reg_func(x_train, target_window, x_pred, n_components, regressor_params)
+                    reg_func(x_train, target_window_scaled, x_pred, n_components, regressor_params)
                 ).reshape(-1)
+                scenario = _inverse_transform_with_scaler(scenario, scaler)
         except Exception:
             scenario = x_future.copy()
 
@@ -485,6 +556,7 @@ class AnalogSpecialDays:
         n_components: int = 3,
         typereg: str = 'PCR',
         regressor_params: Optional[dict[str, object]] = None,
+        scale_method: Optional[str] = None,
         special_day_value: float = 1.0,
         min_special_points: Optional[int] = None,
         min_event_gap: Optional[int] = None,
@@ -498,6 +570,7 @@ class AnalogSpecialDays:
         self.n_components = n_components
         self.typereg = typereg
         self.regressor_params = dict(regressor_params or {})
+        self.scale_method = _normalize_scale_method(scale_method)
         self.special_day_value = special_day_value
         self.min_special_points = min_special_points
         self.min_event_gap = min_event_gap
@@ -518,6 +591,7 @@ class AnalogSpecialDays:
         return (
             f"AnalogSpecialDays(season_length={self.season_length}, "
             f"k={self.k}, typedist='{self.typedist}', typereg='{self.typereg}', "
+            f"scale_method={self.scale_method!r}, "
             f"max_events={self.max_events})"
         )
 
@@ -580,6 +654,7 @@ class AnalogSpecialDays:
                 n_components=self.n_components,
                 typereg=self.typereg,
                 regressor_params=self.regressor_params,
+                scale_method=self.scale_method,
                 special_day_value=self.special_day_value,
                 min_special_points=self.min_special_points,
                 min_event_gap=self.min_event_gap,
@@ -596,6 +671,7 @@ class AnalogSpecialDays:
                 typereg=self.typereg,
                 n_components=self.n_components,
                 regressor_params=self.regressor_params,
+                scale_method=self.scale_method,
             )
 
             forecasts.extend(pred[:block_h].tolist())
@@ -648,6 +724,7 @@ class AnalogSpecialDays:
             n_components=self.n_components,
             typereg=self.typereg,
             regressor_params=self.regressor_params,
+            scale_method=self.scale_method,
             special_day_value=self.special_day_value,
             min_special_points=self.min_special_points,
             min_event_gap=self.min_event_gap,
@@ -664,6 +741,7 @@ class AnalogSpecialDays:
             'n_components': self.n_components,
             'typereg': self.typereg,
             'regressor_params': self.regressor_params.copy(),
+            'scale_method': self.scale_method,
             'special_day_value': self.special_day_value,
             'min_special_points': self.min_special_points,
             'min_event_gap': self.min_event_gap,
@@ -676,6 +754,8 @@ class AnalogSpecialDays:
         for key, val in params.items():
             if key == 'regressor_params':
                 self.regressor_params = dict(val or {})
+            elif key == 'scale_method':
+                self.scale_method = _normalize_scale_method(val)
             elif hasattr(self, key):
                 setattr(self, key, val)
             else:
