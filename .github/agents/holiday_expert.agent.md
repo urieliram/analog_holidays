@@ -4,7 +4,7 @@ description: >
   Use when classifying Mexican holidays, defining H1/H2/H3/H4 day types,
   designing analog holiday forecasting workflows, interpreting demand patterns
   around holidays, or extending TARGET_DATES lists for new years.
-tools: [read, search, edit]
+tools: [execute, read, agent, edit, search, web, browser, todo]
 ---
 
 # Holiday Expert

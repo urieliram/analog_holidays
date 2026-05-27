@@ -1,0 +1,322 @@
+## Hierarchical Reconciliation
+
+Reconcile the per-series analog forecasts so that `SEN_demand_SIN` equals the sum of all bottom series for each target date and forecast hour.
+
+This block adds `BottomUp` and `MinTrace(method='ols')` as a post-forecast step over the existing analog runs.
+
+import inspect
+import subprocess
+import sys
+
+def _load_hierarchicalforecast():
+    try:
+        hierarchicalforecast_core = importlib.import_module('hierarchicalforecast.core')
+        hierarchicalforecast_methods = importlib.import_module('hierarchicalforecast.methods')
+        return (
+            hierarchicalforecast_core.HierarchicalReconciliation,
+            hierarchicalforecast_methods.BottomUp,
+            hierarchicalforecast_methods.MinTrace,
+        )
+    except ModuleNotFoundError:
+        print("Installing 'hierarchicalforecast' into the current kernel environment...")
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'hierarchicalforecast'])
+        importlib.invalidate_caches()
+        hierarchicalforecast_core = importlib.import_module('hierarchicalforecast.core')
+        hierarchicalforecast_methods = importlib.import_module('hierarchicalforecast.methods')
+        return (
+            hierarchicalforecast_core.HierarchicalReconciliation,
+            hierarchicalforecast_methods.BottomUp,
+            hierarchicalforecast_methods.MinTrace,
+        )
+
+try:
+    HierarchicalReconciliation, BottomUp, MinTrace = _load_hierarchicalforecast()
+except Exception as exc:
+    raise ImportError(
+        "Unable to import or install 'hierarchicalforecast' in the active kernel environment. "
+        "If the automatic install failed, run: !{sys.executable} -m pip install hierarchicalforecast"
+    ) from exc
+
+total_id = 'SEN_demand_SIN'
+bottom_ids = [unique_id for unique_id in UNIQUE_IDS if unique_id != total_id]
+hierarchy_ids = [total_id, *bottom_ids]
+
+if total_id not in UNIQUE_IDS:
+    raise ValueError(f'{total_id} is not present in UNIQUE_IDS.')
+if not bottom_ids:
+    raise ValueError('No bottom-level series were found for hierarchical reconciliation.')
+
+s_df = pd.DataFrame(0, index=hierarchy_ids, columns=bottom_ids, dtype=int)
+s_df.loc[total_id, :] = 1
+for bottom_id in bottom_ids:
+    s_df.loc[bottom_id, bottom_id] = 1
+s_df = s_df.reset_index().rename(columns={'index': 'unique_id'})
+
+tags = {
+    'total': np.array([total_id]),
+    'bottom': np.array(bottom_ids),
+}
+
+reconcilers = [BottomUp(), MinTrace(method='ols')]
+
+def _build_base_forecasts_for_target(target_date):
+    forecast_rows = []
+    actual_rows = []
+    missing_series = []
+    failed_series = []
+
+    for unique_id in hierarchy_ids:
+        run = rolling_runs.get(unique_id, {}).get(target_date)
+        if run is None:
+            missing_series.append(unique_id)
+            continue
+        if run.fail:
+            failed_series.append(unique_id)
+
+        ds_index = pd.date_range(
+            run.forecast_start,
+            periods=len(run.forecast_profile),
+            freq='h',
+        )
+
+        for ds_value, forecast_value in zip(ds_index, run.forecast_profile):
+            forecast_rows.append({
+                'unique_id': unique_id,
+                'ds': ds_value,
+                'analog_base': float(forecast_value),
+            })
+
+        if run.actual_profile is not None:
+            for ds_value, actual_value in zip(ds_index, run.actual_profile):
+                actual_rows.append({
+                    'unique_id': unique_id,
+                    'ds': ds_value,
+                    'y': float(actual_value),
+                })
+
+    if missing_series:
+        raise ValueError(f'Missing runs for target_date={target_date}: {missing_series}')
+    if failed_series:
+        print(f'Warning: failed runs included in reconciliation for {target_date}: {failed_series}')
+
+    y_hat_df = (
+        pd.DataFrame(forecast_rows)
+        .sort_values(['unique_id', 'ds'])
+        .reset_index(drop=True)
+    )
+    y_test_df = (
+        pd.DataFrame(actual_rows)
+        .sort_values(['unique_id', 'ds'])
+        .reset_index(drop=True)
+        if actual_rows else pd.DataFrame(columns=['unique_id', 'ds', 'y'])
+    )
+    return y_hat_df, y_test_df
+
+def _identify_reconciled_columns(y_rec_df):
+    excluded = {'unique_id', 'ds', 'y'}
+    candidate_cols = [col for col in y_rec_df.columns if col not in excluded]
+    reconciled_cols = [col for col in candidate_cols if col != 'analog_base']
+    return candidate_cols, reconciled_cols
+
+def _build_coherence_check(y_rec_df, value_col):
+    wide_df = (
+        y_rec_df[['unique_id', 'ds', value_col]]
+        .pivot(index='ds', columns='unique_id', values=value_col)
+        .sort_index()
+    )
+    coherence_df = pd.DataFrame({
+        'sin_reconciled': wide_df[total_id],
+        'sum_bottom_reconciled': wide_df[bottom_ids].sum(axis=1),
+    })
+    coherence_df['gap'] = coherence_df['sin_reconciled'] - coherence_df['sum_bottom_reconciled']
+    return coherence_df.reset_index()
+
+def _reconcile_with_version_compatibility(reconciler, y_hat_df, s_matrix_df, tags_dict, y_df=None):
+    reconcile_params = inspect.signature(reconciler.reconcile).parameters
+    reconcile_kwargs = {}
+
+    if 'Y_hat_df' in reconcile_params:
+        reconcile_kwargs['Y_hat_df'] = y_hat_df
+    elif 'y_hat_df' in reconcile_params:
+        reconcile_kwargs['y_hat_df'] = y_hat_df
+    else:
+        raise TypeError(
+            f'Unsupported reconcile() signature. Parameters: {list(reconcile_params)}'
+        )
+
+    if 'S_df' in reconcile_params:
+        reconcile_kwargs['S_df'] = s_matrix_df
+    elif 'S' in reconcile_params:
+        reconcile_kwargs['S'] = s_matrix_df
+    else:
+        raise TypeError(
+            f'Unsupported reconcile() signature. Parameters: {list(reconcile_params)}'
+        )
+
+    if 'tags' in reconcile_params:
+        reconcile_kwargs['tags'] = tags_dict
+
+    y_df_is_required = (
+        'Y_df' in reconcile_params and reconcile_params['Y_df'].default is inspect._empty
+    ) or (
+        'y_df' in reconcile_params and reconcile_params['y_df'].default is inspect._empty
+    )
+
+    if y_df is not None and not y_df.empty:
+        if 'Y_df' in reconcile_params:
+            reconcile_kwargs['Y_df'] = y_df
+        elif 'y_df' in reconcile_params:
+            reconcile_kwargs['y_df'] = y_df
+    elif y_df_is_required:
+        raise TypeError(
+            'This hierarchicalforecast version requires Y_df/y_df and no actual target dataframe was available.'
+        )
+
+    return reconciler.reconcile(**reconcile_kwargs)
+
+def reconcile_target_date(target_date):
+    y_hat_df, y_test_df = _build_base_forecasts_for_target(target_date)
+    reconciler = HierarchicalReconciliation(reconcilers=reconcilers)
+    y_rec_df = _reconcile_with_version_compatibility(
+        reconciler=reconciler,
+        y_hat_df=y_hat_df,
+        s_matrix_df=s_df,
+        tags_dict=tags,
+        y_df=y_test_df,
+    )
+    _, reconciled_cols = _identify_reconciled_columns(y_rec_df)
+    if not reconciled_cols:
+        raise ValueError(
+            f'No reconciled columns were produced for target_date={target_date}. Columns: {y_rec_df.columns.tolist()}'
+        )
+    return y_hat_df, y_test_df, y_rec_df, reconciled_cols
+
+reconciliation_by_target = {}
+reconciliation_summary_rows = []
+
+for target_date, holiday_label in rolling_target_items:
+    try:
+        y_hat_df, y_test_df, y_rec_df, reconciled_cols = reconcile_target_date(target_date)
+        reconciliation_by_target[target_date] = {
+            'holiday_label': holiday_label,
+            'y_hat_df': y_hat_df,
+            'y_test_df': y_test_df,
+            'y_rec_df': y_rec_df,
+            'reconciled_cols': reconciled_cols,
+        }
+
+        for reconciled_col in reconciled_cols:
+            coherence_df = _build_coherence_check(y_rec_df, reconciled_col)
+            reconciliation_summary_rows.append({
+                'target_date': target_date,
+                'holiday_label': holiday_label,
+                'reconciled_column': reconciled_col,
+                'max_abs_coherence_gap': float(coherence_df['gap'].abs().max()),
+                'n_forecast_rows': int(len(y_rec_df)),
+                'has_actuals': bool(not y_test_df.empty),
+                'error': None,
+            })
+    except Exception as exc:
+        reconciliation_summary_rows.append({
+            'target_date': target_date,
+            'holiday_label': holiday_label,
+            'reconciled_column': pd.NA,
+            'max_abs_coherence_gap': np.nan,
+            'n_forecast_rows': 0,
+            'has_actuals': False,
+            'error': str(exc),
+        })
+
+reconciliation_summary_df = pd.DataFrame(reconciliation_summary_rows)
+current_reconciliation = reconciliation_by_target.get(TARGET_DATE)
+
+display(s_df)
+reconciliation_summary_df
+
+def _compute_model_metrics(y_rec_df, y_test_df, value_cols):
+    if y_test_df.empty:
+        return pd.DataFrame({
+            'model': value_cols,
+            'n_points': [0] * len(value_cols),
+            'mae': [np.nan] * len(value_cols),
+            'mape_pct': [np.nan] * len(value_cols),
+        })
+
+    merged_df = y_rec_df.merge(y_test_df, on=['unique_id', 'ds'], how='left')
+    metric_rows = []
+    for value_col in value_cols:
+        valid_df = merged_df[['y', value_col]].dropna()
+        if valid_df.empty:
+            metric_rows.append({
+                'model': value_col,
+                'n_points': 0,
+                'mae': np.nan,
+                'mape_pct': np.nan,
+            })
+            continue
+
+        errors = valid_df[value_col].to_numpy(dtype=float) - valid_df['y'].to_numpy(dtype=float)
+        denominators = np.where(
+            np.abs(valid_df['y'].to_numpy(dtype=float)) > 1e-9,
+            np.abs(valid_df['y'].to_numpy(dtype=float)),
+            np.nan,
+        )
+        ape_pct = np.abs(errors) / denominators * 100.0
+        metric_rows.append({
+            'model': value_col,
+            'n_points': int(len(valid_df)),
+            'mae': float(np.mean(np.abs(errors))),
+            'mape_pct': float(np.nanmean(ape_pct)) if np.isfinite(ape_pct).any() else np.nan,
+        })
+
+    return pd.DataFrame(metric_rows)
+
+current_reconciliation = reconciliation_by_target.get(TARGET_DATE)
+if current_reconciliation is None:
+    target_summary_df = reconciliation_summary_df.loc[
+        reconciliation_summary_df['target_date'] == TARGET_DATE
+    ].reset_index(drop=True)
+    if not target_summary_df.empty:
+        display(target_summary_df)
+
+    try:
+        y_hat_df, y_test_df, y_rec_df, reconciled_cols = reconcile_target_date(TARGET_DATE)
+        current_reconciliation = {
+            'holiday_label': target_summary_df['holiday_label'].iloc[0] if not target_summary_df.empty else pd.NA,
+            'y_hat_df': y_hat_df,
+            'y_test_df': y_test_df,
+            'y_rec_df': y_rec_df,
+            'reconciled_cols': reconciled_cols,
+        }
+        reconciliation_by_target[TARGET_DATE] = current_reconciliation
+        print(f'Recomputed reconciliation successfully for TARGET_DATE={TARGET_DATE}.')
+    except Exception as exc:
+        detail = str(exc)
+        if not target_summary_df.empty and 'error' in target_summary_df.columns:
+            prior_error = target_summary_df['error'].dropna()
+            if not prior_error.empty:
+                detail = f'{detail} | previous batch error: {prior_error.iloc[0]}'
+        raise ValueError(
+            f'Reconciliation failed for TARGET_DATE={TARGET_DATE}. Detail: {detail}'
+        ) from exc
+
+current_y_rec_df = current_reconciliation['y_rec_df']
+current_y_test_df = current_reconciliation['y_test_df']
+current_reconciled_cols = current_reconciliation['reconciled_cols']
+current_metric_cols = ['analog_base', *current_reconciled_cols]
+current_metrics_df = _compute_model_metrics(
+    current_y_rec_df,
+    current_y_test_df,
+    current_metric_cols,
+ )
+
+display(current_metrics_df)
+
+for reconciled_col in current_reconciled_cols:
+    current_coherence_df = _build_coherence_check(current_y_rec_df, reconciled_col)
+    print(
+        f'Coherence check | {reconciled_col} | max_abs_gap={current_coherence_df["gap"].abs().max():.12f}'
+    )
+    display(current_coherence_df.head(10))
+
+current_reconciliation['y_rec_df'].head()
