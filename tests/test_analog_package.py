@@ -457,6 +457,125 @@ class AnalogPackageSmokeTests(unittest.TestCase):
         self.assertEqual(init_kwargs["scale_method"], scale_method)
         self.assertEqual(core_kwargs["scale_method"], scale_method)
 
+    def test_run_analog_holidays_adds_recent_weekend_candidates_outside_cluster_filter(self) -> None:
+        import analog_holidays.analog.analog_holidays as analog_holidays_module
+
+        dates = pd.date_range("2024-12-01", periods=25, freq="D")
+        hour_columns = {
+            f"h_{hour:02d}": [float(day_idx * 100 + hour) for day_idx in range(len(dates))]
+            for hour in range(24)
+        }
+        labels = ["normal_day"] * len(dates)
+        holiday_names = [pd.NA] * len(dates)
+        declared_flags = [False] * len(dates)
+
+        historic_idx = list(dates).index(pd.Timestamp("2024-12-18"))
+        target_idx = list(dates).index(pd.Timestamp("2024-12-25"))
+        labels[historic_idx] = "holiday"
+        holiday_names[historic_idx] = "Historic Holiday"
+        declared_flags[historic_idx] = True
+        labels[target_idx] = "holiday"
+        holiday_names[target_idx] = "Target Holiday"
+        declared_flags[target_idx] = True
+
+        df_source = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * len(dates),
+                "date": dates,
+                "label": labels,
+                "holiday_name": holiday_names,
+                "holiday_type": [pd.NA] * len(dates),
+                "is_declared_holiday": declared_flags,
+                "is_outlier": [False] * len(dates),
+                "outlier_score": [np.nan] * len(dates),
+                **hour_columns,
+            }
+        )
+
+        selector_df = pd.DataFrame(
+            {
+                "holiday_name": ["Historic Holiday", "Target Holiday"],
+                "anchor_holiday_name": ["Historic Holiday", "Target Holiday"],
+                "date": pd.to_datetime(["2024-12-18", "2024-12-25"]),
+                "holiday_day_type": ["H2", "H2"],
+                "weekday_name": ["Wednesday", "Wednesday"],
+                "day_class_code": ["1", "1"],
+                "day_class_name": ["Weekday", "Weekday"],
+                "season": ["Winter", "Winter"],
+                "date_rule": ["fixed_date", "fixed_date"],
+                "is_fixed_date": [True, True],
+                "is_observed_monday_rule": [False, False],
+                "best_matching_weekday": [pd.NA, "Sunday"],
+                "daily_profile_cluster": [pd.NA, pd.NA],
+                "daily_profile_cluster_id": [pd.NA, pd.NA],
+                "daily_profile_archetype": [pd.NA, "Sunday-like"],
+                "event_profile_cluster": [pd.NA, pd.NA],
+                "event_profile_cluster_id": [pd.NA, pd.NA],
+                "analog_cluster": ["G", "H"],
+            }
+        )
+
+        class DummyAnalogSpecialDays:
+            def __init__(self, *args, **kwargs) -> None:
+                # The test only needs the constructor to accept the production signature.
+                pass
+
+            def fit(self, y, special_days):
+                self.y = np.asarray(y, dtype=np.float64)
+                self.special_days = np.asarray(special_days, dtype=np.float64)
+                return self
+
+            def predict(self, h, level):
+                result = {"mean": np.full(h, 123.0, dtype=np.float64)}
+                for lv in level:
+                    result[f"lo-{lv}"] = np.full(h, 120.0, dtype=np.float64)
+                    result[f"hi-{lv}"] = np.full(h, 126.0, dtype=np.float64)
+                return result
+
+        def fake_core(**kwargs):
+            vsele = int(kwargs["vsele"])
+            return (
+                np.full(vsele, 123.0, dtype=np.float64),
+                0.01,
+                0.02,
+                False,
+                [0],
+                np.full((1, vsele), 123.0, dtype=np.float64),
+            )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            selector_path = Path(tmp_dir) / "holiday_selector_features.csv"
+            selector_df.to_csv(selector_path, index=False)
+
+            with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(
+                analog_holidays_module,
+                "AnalogSpecialDays",
+                DummyAnalogSpecialDays,
+            ), patch.object(
+                analog_holidays_module,
+                "analog_special_days_core",
+                side_effect=fake_core,
+            ):
+                run = analog_holidays_module.run_analog_holidays(
+                    unique_id="SEN_demand_SIN",
+                    target_date="2024-12-25",
+                    season_length=38,
+                    forecast_start_offset_hours=14,
+                    levels=[80],
+                    special_labels=("holiday",),
+                    min_special_points=24,
+                    selector_features_path=selector_path,
+                    match_target_cluster=True,
+                    recent_weekend_analogs=3,
+                )
+
+        self.assertEqual(run.recent_weekend_like, "Sunday")
+        self.assertEqual(
+            [date_value.date().isoformat() for date_value in run.recent_weekend_dates],
+            ["2024-12-08", "2024-12-15", "2024-12-22"],
+        )
+        self.assertEqual(int(run.special_day_daily_mask.sum()), 3)
+
     def test_analog_special_days_core_standard_scaling_returns_original_scale(self) -> None:
         from analog_holidays.analog.analog_special_days import analog_special_days_core
 
@@ -528,6 +647,10 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             side_effect=fake_special_mask,
         ), patch.object(
             analog_holidays_module,
+            "_resolve_selector_weekend_like_lookup",
+            return_value={},
+        ), patch.object(
+            analog_holidays_module,
             "_evaluate_analog_holiday_fold",
             side_effect=fake_evaluate_fold,
         ):
@@ -552,6 +675,81 @@ class AnalogPackageSmokeTests(unittest.TestCase):
         self.assertIn(result.best_config["regressor_params"]["n_estimators"], {100, 200, 300})
         self.assertIn(result.best_config["regressor_params"]["max_depth"], {4, 8, 12})
         self.assertIn(result.best_config["regressor_params"]["min_samples_leaf"], {1, 2, 4})
+
+    def test_tune_analog_holidays_optuna_passes_recent_weekend_analogs_to_fold_builders(self) -> None:
+        import analog_holidays.analog.analog_holidays as analog_holidays_module
+
+        hour_columns = {
+            f"h_{hour:02d}": [float(day_idx * 100 + hour) for day_idx in range(5)]
+            for hour in range(24)
+        }
+        df_source = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 5,
+                "date": pd.date_range("2023-12-20", periods=5, freq="D"),
+                "label": ["holiday"] * 5,
+                "holiday_name": [f"Holiday {idx}" for idx in range(5)],
+                "holiday_type": [pd.NA] * 5,
+                "is_declared_holiday": [True] * 5,
+                "is_outlier": [False] * 5,
+                "outlier_score": [np.nan] * 5,
+                **hour_columns,
+            }
+        )
+
+        received_recent_weekends: list[int] = []
+
+        def fake_special_mask(*args, **kwargs):
+            return pd.Series([True] * len(df_source), index=df_source.index)
+
+        def fake_evaluate_fold(**kwargs):
+            received_recent_weekends.append(int(kwargs["recent_weekend_analogs"]))
+            return {
+                "target_date": pd.Timestamp(kwargs["target_date"]).date().isoformat(),
+                "mae": 1.0,
+                "mape_pct": 2.0,
+                "selected_analogs": 3,
+                "fail": False,
+                "train_days": 3,
+                "train_special_days": 3,
+            }
+
+        def fake_count_realizable_analog_positions(**kwargs):
+            received_recent_weekends.append(int(kwargs["recent_weekend_analogs"]))
+            return 4
+
+        with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(
+            analog_holidays_module,
+            "build_special_day_daily_mask",
+            side_effect=fake_special_mask,
+        ), patch.object(
+            analog_holidays_module,
+            "_resolve_selector_weekend_like_lookup",
+            return_value={},
+        ), patch.object(
+            analog_holidays_module,
+            "_evaluate_analog_holiday_fold",
+            side_effect=fake_evaluate_fold,
+        ), patch.object(
+            analog_holidays_module,
+            "_count_realizable_analog_positions",
+            side_effect=fake_count_realizable_analog_positions,
+        ):
+            analog_holidays_module.tune_analog_holidays_optuna(
+                unique_id="SEN_demand_SIN",
+                train_end="2023-12-25",
+                n_trials=1,
+                timeout_sec=60,
+                max_eval_dates=2,
+                typedist_choices=["pearson"],
+                typereg_choices=["PCR"],
+                random_seed=7,
+                special_labels=("holiday",),
+                recent_weekend_analogs=3,
+            )
+
+        self.assertTrue(received_recent_weekends)
+        self.assertTrue(all(value == 3 for value in received_recent_weekends))
 
     def test_tune_analog_holidays_optuna_caps_k_to_realizable_analog_pool(self) -> None:
         import optuna

@@ -79,6 +79,9 @@ class AnalogHolidayRun:
     min_special_points: Optional[int]
     min_event_gap: Optional[int]
     max_events: Optional[int]
+    recent_weekend_analogs: int
+    recent_weekend_like: Optional[str]
+    recent_weekend_dates: list[pd.Timestamp]
     label_column: str
 
 
@@ -330,6 +333,60 @@ def _resolve_selector_cluster_lookup(
     return load_selector_cluster_lookup(resolved_path, cluster_column=cluster_column)
 
 
+def _normalize_recent_weekend_analogs(recent_weekend_analogs: int) -> int:
+    resolved = int(recent_weekend_analogs)
+    if resolved < 0:
+        raise ValueError("recent_weekend_analogs must be >= 0.")
+    return resolved
+
+
+def _normalize_weekend_like_value(value: object) -> Optional[str]:
+    if pd.isna(value):
+        return None
+
+    normalized = str(value).strip().lower()
+    if normalized in {"saturday", "saturday-like"}:
+        return "Saturday"
+    if normalized in {"sunday", "sunday-like"}:
+        return "Sunday"
+    return None
+
+
+def _resolve_selector_weekend_like_lookup(
+    selector_features_path: Path | str | None,
+    recent_weekend_analogs: int,
+) -> Optional[dict[pd.Timestamp, str]]:
+    if _normalize_recent_weekend_analogs(recent_weekend_analogs) == 0:
+        return None
+
+    resolved_path = (
+        DEFAULT_SELECTOR_FEATURES_PATH
+        if selector_features_path is None else Path(selector_features_path)
+    )
+    selector_df = pd.read_csv(resolved_path, parse_dates=["date"])
+    selector_df["date"] = pd.to_datetime(selector_df["date"]).dt.normalize()
+
+    if "best_matching_weekday" not in selector_df.columns:
+        selector_df["best_matching_weekday"] = pd.NA
+    if "daily_profile_archetype" not in selector_df.columns:
+        selector_df["daily_profile_archetype"] = pd.NA
+
+    selector_df["weekend_like"] = [
+        _normalize_weekend_like_value(best_matching_weekday)
+        or _normalize_weekend_like_value(daily_profile_archetype)
+        for best_matching_weekday, daily_profile_archetype in zip(
+            selector_df["best_matching_weekday"],
+            selector_df["daily_profile_archetype"],
+        )
+    ]
+    weekend_df = (
+        selector_df.loc[selector_df["weekend_like"].notna(), ["date", "weekend_like"]]
+        .drop_duplicates(subset=["date"], keep="last")
+        .sort_values("date")
+    )
+    return dict(zip(weekend_df["date"], weekend_df["weekend_like"]))
+
+
 def _get_target_cluster(
     target_date: str | pd.Timestamp,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]],
@@ -352,18 +409,96 @@ def _restrict_daily_mask_to_target_cluster(
     df_region: pd.DataFrame,
     target_date: str | pd.Timestamp,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]],
+    raise_if_empty: bool = True,
 ) -> pd.Series:
     target_cluster = _get_target_cluster(target_date, selector_cluster_lookup)
     date_clusters = pd.to_datetime(df_region["date"]).dt.normalize().map(
         selector_cluster_lookup or {}
     )
     restricted_mask = mask.astype(bool) & date_clusters.eq(target_cluster).fillna(False)
-    if int(restricted_mask.sum()) == 0:
+    if int(restricted_mask.sum()) == 0 and raise_if_empty:
         raise ValueError(
             f"No historical special days share analog cluster {target_cluster!r} "
             f"before target_date={pd.Timestamp(target_date).normalize().date()}."
         )
     return restricted_mask.astype(bool)
+
+
+def _build_recent_weekend_analog_mask(
+    train_df: pd.DataFrame,
+    target_date: str | pd.Timestamp,
+    selector_weekend_lookup: Optional[dict[pd.Timestamp, str]],
+    recent_weekend_analogs: int,
+) -> tuple[pd.Series, Optional[str], list[pd.Timestamp]]:
+    resolved_recent_weekends = _normalize_recent_weekend_analogs(recent_weekend_analogs)
+    empty_mask = pd.Series(False, index=train_df.index, dtype=bool)
+    if resolved_recent_weekends == 0 or selector_weekend_lookup is None:
+        return empty_mask, None, []
+
+    target_ts = pd.Timestamp(target_date).normalize()
+    weekend_like = selector_weekend_lookup.get(target_ts)
+    if weekend_like not in {"Saturday", "Sunday"}:
+        return empty_mask, weekend_like, []
+
+    weekday_number = 5 if weekend_like == "Saturday" else 6
+    train_dates = pd.to_datetime(train_df["date"]).dt.normalize()
+    selected_dates = (
+        train_dates.loc[train_dates.dt.dayofweek == weekday_number]
+        .drop_duplicates()
+        .sort_values()
+        .tail(resolved_recent_weekends)
+        .tolist()
+    )
+    if not selected_dates:
+        return empty_mask, weekend_like, []
+
+    recent_weekend_mask = train_dates.isin(selected_dates)
+    resolved_dates = [pd.Timestamp(date_value).normalize() for date_value in selected_dates]
+    return recent_weekend_mask.astype(bool), weekend_like, resolved_dates
+
+
+def _build_analog_candidate_daily_mask(
+    train_df: pd.DataFrame,
+    target_date: str | pd.Timestamp,
+    special_labels: Sequence[str],
+    include_declared_holidays: bool,
+    include_outliers: bool,
+    label_column: str,
+    selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
+    match_target_cluster: bool = False,
+    selector_weekend_lookup: Optional[dict[pd.Timestamp, str]] = None,
+    recent_weekend_analogs: int = 0,
+) -> tuple[pd.Series, Optional[str], list[pd.Timestamp]]:
+    resolved_recent_weekends = _normalize_recent_weekend_analogs(recent_weekend_analogs)
+    candidate_mask = build_special_day_daily_mask(
+        train_df,
+        special_labels=special_labels,
+        include_declared_holidays=include_declared_holidays,
+        include_outliers=include_outliers,
+        label_column=label_column,
+    )
+    if match_target_cluster:
+        candidate_mask = _restrict_daily_mask_to_target_cluster(
+            candidate_mask,
+            train_df,
+            target_date,
+            selector_cluster_lookup,
+            raise_if_empty=resolved_recent_weekends == 0,
+        )
+
+    recent_weekend_mask, recent_weekend_like, recent_weekend_dates = _build_recent_weekend_analog_mask(
+        train_df,
+        target_date,
+        selector_weekend_lookup,
+        resolved_recent_weekends,
+    )
+    candidate_mask = candidate_mask.astype(bool) | recent_weekend_mask.astype(bool)
+    if int(candidate_mask.sum()) == 0:
+        raise ValueError(
+            f"No prior candidate days exist before {pd.Timestamp(target_date).normalize().date()} "
+            "to build analogs."
+        )
+    return candidate_mask.astype(bool), recent_weekend_like, recent_weekend_dates
 
 
 def _normalize_forecast_start_offset_hours(
@@ -389,6 +524,8 @@ def _count_realizable_analog_positions(
     label_column: str,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
     match_target_cluster: bool = False,
+    selector_weekend_lookup: Optional[dict[pd.Timestamp, str]] = None,
+    recent_weekend_analogs: int = 0,
 ) -> int:
     """Count analog windows that remain after all upstream filters except k-ranking."""
     target_ts = pd.Timestamp(target_date).normalize()
@@ -411,24 +548,18 @@ def _count_realizable_analog_positions(
             f"Insufficient history before {target_ts.date()} for season_length={season_length}."
         )
 
-    special_mask = build_special_day_daily_mask(
+    special_mask, _, _ = _build_analog_candidate_daily_mask(
         train_df,
+        target_ts,
         special_labels=special_labels,
         include_declared_holidays=include_declared_holidays,
         include_outliers=include_outliers,
         label_column=label_column,
+        selector_cluster_lookup=selector_cluster_lookup,
+        match_target_cluster=match_target_cluster,
+        selector_weekend_lookup=selector_weekend_lookup,
+        recent_weekend_analogs=recent_weekend_analogs,
     )
-    if match_target_cluster:
-        special_mask = _restrict_daily_mask_to_target_cluster(
-            special_mask,
-            train_df,
-            target_ts,
-            selector_cluster_lookup,
-        )
-    if int(special_mask.sum()) == 0:
-        raise ValueError(
-            f"No prior special days exist before {target_ts.date()} to build analogs."
-        )
 
     special_hourly_mask = np.repeat(
         special_mask.astype(float).to_numpy(),
@@ -525,10 +656,13 @@ def run_analog_holidays(
     cluster_column: str = "analog_cluster",
     match_target_cluster: bool = False,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
+    selector_weekend_lookup: Optional[dict[pd.Timestamp, str]] = None,
+    recent_weekend_analogs: int = 0,
 ) -> AnalogHolidayRun:
     """Run an offset-aware AnalogSpecialDays forecast for a holiday date."""
     target_ts = pd.Timestamp(target_date).normalize()
     regressor_params = _coerce_regressor_params(regressor_params)
+    recent_weekend_analogs = _normalize_recent_weekend_analogs(recent_weekend_analogs)
     forecast_start_offset_hours = _normalize_forecast_start_offset_hours(
         forecast_start_offset_hours
     )
@@ -569,6 +703,12 @@ def run_analog_holidays(
             cluster_column=cluster_column,
             match_target_cluster=match_target_cluster,
         )
+    resolved_weekend_lookup = selector_weekend_lookup
+    if recent_weekend_analogs > 0 and resolved_weekend_lookup is None:
+        resolved_weekend_lookup = _resolve_selector_weekend_like_lookup(
+            selector_features_path=selector_features_path,
+            recent_weekend_analogs=recent_weekend_analogs,
+        )
 
     hourly_series = _truncate_hourly_history(
         _flatten_daily_profiles(train_df),
@@ -581,20 +721,18 @@ def run_analog_holidays(
             f"forecast_start={forecast_start}."
         )
 
-    special_day_daily_mask = build_special_day_daily_mask(
+    special_day_daily_mask, recent_weekend_like, recent_weekend_dates = _build_analog_candidate_daily_mask(
         train_df,
+        target_ts,
         special_labels=special_labels,
         include_declared_holidays=include_declared_holidays,
         include_outliers=include_outliers,
         label_column=label_column,
+        selector_cluster_lookup=resolved_cluster_lookup,
+        match_target_cluster=match_target_cluster,
+        selector_weekend_lookup=resolved_weekend_lookup,
+        recent_weekend_analogs=recent_weekend_analogs,
     )
-    if match_target_cluster:
-        special_day_daily_mask = _restrict_daily_mask_to_target_cluster(
-            special_day_daily_mask,
-            train_df,
-            target_ts,
-            resolved_cluster_lookup,
-        )
 
     special_day_hourly_mask = np.repeat(
         special_day_daily_mask.astype(float).to_numpy(),
@@ -693,6 +831,9 @@ def run_analog_holidays(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        recent_weekend_analogs=recent_weekend_analogs,
+        recent_weekend_like=recent_weekend_like,
+        recent_weekend_dates=recent_weekend_dates,
         label_column=label_column,
     )
 
@@ -726,6 +867,7 @@ def tune_analog_holidays_optuna(
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
     match_target_cluster: bool = False,
+    recent_weekend_analogs: int = 0,
 ) -> AnalogHolidayOptunaResult:
     """Tune AnalogSpecialDays hyperparameters on historical special dates."""
     import importlib.util
@@ -734,6 +876,7 @@ def tune_analog_holidays_optuna(
 
     train_end_ts = pd.Timestamp(train_end)
     scale_method = _normalize_scale_method(scale_method)
+    recent_weekend_analogs = _normalize_recent_weekend_analogs(recent_weekend_analogs)
     resolved_scale_method_choices = _resolve_scale_method_choices(scale_method_choices)
     initial_regressor_params = _coerce_regressor_params(initial_regressor_params)
     df = load_audit_source(source_path)
@@ -743,6 +886,10 @@ def tune_analog_holidays_optuna(
         selector_features_path=selector_features_path,
         cluster_column=cluster_column,
         match_target_cluster=match_target_cluster,
+    )
+    selector_weekend_lookup = _resolve_selector_weekend_like_lookup(
+        selector_features_path=selector_features_path,
+        recent_weekend_analogs=recent_weekend_analogs,
     )
     history_df = df_region.loc[
         (df_region["date"] < train_end_ts) & complete_mask
@@ -818,6 +965,8 @@ def tune_analog_holidays_optuna(
                 label_column=label_column,
                 selector_cluster_lookup=selector_cluster_lookup,
                 match_target_cluster=match_target_cluster,
+                selector_weekend_lookup=selector_weekend_lookup,
+                recent_weekend_analogs=recent_weekend_analogs,
             )
             realizable_analogs = _count_realizable_analog_positions(
                 history_df=history_df,
@@ -833,6 +982,8 @@ def tune_analog_holidays_optuna(
                 label_column=label_column,
                 selector_cluster_lookup=selector_cluster_lookup,
                 match_target_cluster=match_target_cluster,
+                selector_weekend_lookup=selector_weekend_lookup,
+                recent_weekend_analogs=recent_weekend_analogs,
             )
             if realizable_analogs < optuna_min_k:
                 continue
@@ -866,6 +1017,8 @@ def tune_analog_holidays_optuna(
         label_column=label_column,
         selector_cluster_lookup=selector_cluster_lookup,
         match_target_cluster=match_target_cluster,
+        selector_weekend_lookup=selector_weekend_lookup,
+        recent_weekend_analogs=recent_weekend_analogs,
     )
     if final_target_analog_cap < optuna_min_k:
         raise ValueError(
@@ -949,6 +1102,8 @@ def tune_analog_holidays_optuna(
                         label_column=label_column,
                         selector_cluster_lookup=selector_cluster_lookup,
                         match_target_cluster=match_target_cluster,
+                            selector_weekend_lookup=selector_weekend_lookup,
+                            recent_weekend_analogs=recent_weekend_analogs,
                         dtw_window=dtw_window,
                     )
                 )
@@ -1049,6 +1204,7 @@ def run_analog_holidays_batch(
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
     match_target_cluster: bool = False,
+    recent_weekend_analogs: int = 0,
 ) -> AnalogHolidayBatchResult:
     """Run AnalogSpecialDays over a batch of target dates and summarize results."""
     regressor_params = _coerce_regressor_params(regressor_params)
@@ -1057,6 +1213,10 @@ def run_analog_holidays_batch(
         selector_features_path=selector_features_path,
         cluster_column=cluster_column,
         match_target_cluster=match_target_cluster,
+    )
+    selector_weekend_lookup = _resolve_selector_weekend_like_lookup(
+        selector_features_path=selector_features_path,
+        recent_weekend_analogs=recent_weekend_analogs,
     )
     runs: Dict[str, AnalogHolidayRun] = {}
     rows = []
@@ -1088,6 +1248,8 @@ def run_analog_holidays_batch(
                 cluster_column=cluster_column,
                 match_target_cluster=match_target_cluster,
                 selector_cluster_lookup=selector_cluster_lookup,
+                selector_weekend_lookup=selector_weekend_lookup,
+                recent_weekend_analogs=recent_weekend_analogs,
             )
             runs[target_date] = run
 
@@ -1331,6 +1493,13 @@ def build_run_summary(run: AnalogHolidayRun) -> pd.DataFrame:
         ("k_neighbors", run.k),
         ("train_days", len(run.train_df)),
         ("special_days_train", int(run.special_day_daily_mask.sum())),
+        ("recent_weekend_like", run.recent_weekend_like),
+        ("recent_weekend_analogs_requested", run.recent_weekend_analogs),
+        ("recent_weekend_analogs_added", len(run.recent_weekend_dates)),
+        (
+            "recent_weekend_dates",
+            ", ".join(date_value.date().isoformat() for date_value in run.recent_weekend_dates),
+        ),
         ("selected_analogs", len(run.positions)),
         ("fail", run.fail),
         ("t_sel_sec", round(run.t_sel, 6)),
@@ -1998,6 +2167,8 @@ def _evaluate_analog_holiday_fold(
     label_column: str,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
     match_target_cluster: bool = False,
+    selector_weekend_lookup: Optional[dict[pd.Timestamp, str]] = None,
+    recent_weekend_analogs: int = 0,
     dtw_window: Optional[float] = None,
 ) -> dict[str, object]:
     """Evaluate a single historical special date as a tuning fold."""
@@ -2022,24 +2193,18 @@ def _evaluate_analog_holiday_fold(
             f"Insufficient history before {forecast_start} for season_length={season_length}."
         )
 
-    special_mask = build_special_day_daily_mask(
+    special_mask, _, _ = _build_analog_candidate_daily_mask(
         train_df,
+        target_ts,
         special_labels=special_labels,
         include_declared_holidays=include_declared_holidays,
         include_outliers=include_outliers,
         label_column=label_column,
+        selector_cluster_lookup=selector_cluster_lookup,
+        match_target_cluster=match_target_cluster,
+        selector_weekend_lookup=selector_weekend_lookup,
+        recent_weekend_analogs=recent_weekend_analogs,
     )
-    if match_target_cluster:
-        special_mask = _restrict_daily_mask_to_target_cluster(
-            special_mask,
-            train_df,
-            target_ts,
-            selector_cluster_lookup,
-        )
-    if int(special_mask.sum()) == 0:
-        raise ValueError(
-            f"No prior special days exist before {target_ts.date()} to build analogs."
-        )
 
     special_hourly_mask = np.repeat(
         special_mask.astype(float).to_numpy(),
