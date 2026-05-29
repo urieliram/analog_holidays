@@ -113,6 +113,102 @@ def _format_regressor_params(regressor_params: Optional[dict[str, object]] = Non
     return json.dumps(params, sort_keys=True) if params else "{}"
 
 
+def _coerce_2d_profiles(profiles: object) -> np.ndarray:
+    arr = np.asarray(profiles, dtype=np.float64)
+    if arr.size == 0:
+        return np.empty((0, 0), dtype=np.float64)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    return arr
+
+
+def fit_hourly_bias_factor_model(
+    neighbor_profiles: object,
+    window_hours: Optional[int] = None,
+    max_analogs: int = 4,
+    tail_hours: Optional[int] = None,
+) -> dict[str, object]:
+    """Fit an hourly bias-adjustment factor model from up to the available analogs.
+
+    The factor is learned over the full window passed by the caller. Historical
+    neighbors remain the only training source, so the fit does not use target
+    actuals and therefore does not introduce leakage.
+
+    ``tail_hours`` is kept as a compatibility alias for older notebook cells.
+    """
+    resolved_window_hours = window_hours
+    if resolved_window_hours is None:
+        resolved_window_hours = tail_hours
+    elif tail_hours is not None and int(window_hours) != int(tail_hours):
+        raise ValueError("window_hours and tail_hours must match when both are provided.")
+
+    if resolved_window_hours is None:
+        raise ValueError("window_hours is required.")
+
+    resolved_window_hours = int(resolved_window_hours)
+    if resolved_window_hours <= 0:
+        raise ValueError("window_hours must be a positive integer.")
+
+    neighbor_matrix = _coerce_2d_profiles(neighbor_profiles)
+    requested_analogs = max(0, int(max_analogs))
+    available_neighbor_profiles = int(neighbor_matrix.shape[0])
+    analogs_to_use = min(requested_analogs, available_neighbor_profiles)
+    valid_window_profiles: list[np.ndarray] = []
+
+    for profile in neighbor_matrix[:analogs_to_use]:
+        window_profile = np.asarray(profile[-resolved_window_hours:], dtype=np.float64)
+        if (
+            window_profile.shape[0] != resolved_window_hours
+            or not np.isfinite(window_profile).all()
+        ):
+            continue
+        window_mean = float(np.mean(window_profile))
+        if not np.isfinite(window_mean) or abs(window_mean) <= 1e-9:
+            continue
+        valid_window_profiles.append(window_profile)
+
+    if not valid_window_profiles:
+        return {
+            "method": "none",
+            "train_samples": 0,
+            "requested_analogs": requested_analogs,
+            "available_neighbor_profiles": available_neighbor_profiles,
+            "selected_analogs": 0,
+            "window_hours": resolved_window_hours,
+            "hourly_factors": np.zeros(resolved_window_hours, dtype=np.float64),
+            "factor_mean": 0.0,
+            "factor_mean_abs": 0.0,
+            "window_mean_train": np.nan,
+            "daily_mean_train": np.nan,
+            "head_tail_corr_train": np.nan,
+            "intercept": 0.0,
+            "slope": 0.0,
+        }
+
+    window_matrix = np.vstack(valid_window_profiles)
+    window_means = window_matrix.mean(axis=1, keepdims=True)
+    hourly_factors = window_matrix / window_means - 1.0
+    mean_hourly_factors = hourly_factors.mean(axis=0)
+    mean_hourly_factors = mean_hourly_factors - mean_hourly_factors.mean()
+
+    return {
+        "method": "hourly_window_mean_factor_top_available_analogs",
+        "train_samples": int(window_matrix.shape[0]),
+        "requested_analogs": requested_analogs,
+        "available_neighbor_profiles": available_neighbor_profiles,
+        "selected_analogs": int(window_matrix.shape[0]),
+        "window_hours": resolved_window_hours,
+        "hourly_factors": mean_hourly_factors.astype(np.float64),
+        "factor_mean": float(mean_hourly_factors.mean()),
+        "factor_mean_abs": float(np.mean(np.abs(mean_hourly_factors))),
+        "window_mean_train": float(window_means.mean()),
+        "daily_mean_train": float(window_means.mean()),
+        "head_tail_corr_train": np.nan,
+        "intercept": float(window_means.mean()),
+        "slope": 0.0,
+    }
+
+
 def _suggest_optuna_regressor_params(trial, typereg: str) -> dict[str, object]:
     if typereg == "RF":
         return {
@@ -322,6 +418,7 @@ def _resolve_selector_cluster_lookup(
     selector_features_path: Path | str | None,
     cluster_column: str,
     match_target_cluster: bool,
+    unique_id: str | None = None,
 ) -> Optional[dict[pd.Timestamp, object]]:
     if not match_target_cluster:
         return None
@@ -330,7 +427,11 @@ def _resolve_selector_cluster_lookup(
         DEFAULT_SELECTOR_FEATURES_PATH
         if selector_features_path is None else Path(selector_features_path)
     )
-    return load_selector_cluster_lookup(resolved_path, cluster_column=cluster_column)
+    return load_selector_cluster_lookup(
+        resolved_path,
+        cluster_column=cluster_column,
+        unique_id=unique_id,
+    )
 
 
 def _normalize_recent_weekend_analogs(recent_weekend_analogs: int) -> int:
@@ -355,6 +456,7 @@ def _normalize_weekend_like_value(value: object) -> Optional[str]:
 def _resolve_selector_weekend_like_lookup(
     selector_features_path: Path | str | None,
     recent_weekend_analogs: int,
+    unique_id: str | None = None,
 ) -> Optional[dict[pd.Timestamp, str]]:
     if _normalize_recent_weekend_analogs(recent_weekend_analogs) == 0:
         return None
@@ -364,6 +466,20 @@ def _resolve_selector_weekend_like_lookup(
         if selector_features_path is None else Path(selector_features_path)
     )
     selector_df = pd.read_csv(resolved_path, parse_dates=["date"])
+    if "unique_id" in selector_df.columns:
+        available_unique_ids = pd.Series(selector_df["unique_id"]).dropna().astype(str).unique().tolist()
+        if unique_id is not None:
+            selector_df = selector_df[selector_df["unique_id"].astype(str) == str(unique_id)].copy()
+            if selector_df.empty:
+                raise ValueError(
+                    f"Selector CSV {resolved_path} has no rows for unique_id={unique_id!r}."
+                )
+        elif len(available_unique_ids) > 1:
+            preview = ", ".join(sorted(available_unique_ids)[:5])
+            raise ValueError(
+                "Selector CSV contains multiple unique_id values. "
+                f"Pass unique_id to select one series: {preview}"
+            )
     selector_df["date"] = pd.to_datetime(selector_df["date"]).dt.normalize()
 
     if "best_matching_weekday" not in selector_df.columns:
@@ -654,7 +770,7 @@ def run_analog_holidays(
     expected_target_label: Optional[str] = "holiday",
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
-    match_target_cluster: bool = False,
+    match_target_cluster: bool = True,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
     selector_weekend_lookup: Optional[dict[pd.Timestamp, str]] = None,
     recent_weekend_analogs: int = 0,
@@ -702,12 +818,14 @@ def run_analog_holidays(
             selector_features_path=selector_features_path,
             cluster_column=cluster_column,
             match_target_cluster=match_target_cluster,
+            unique_id=unique_id,
         )
     resolved_weekend_lookup = selector_weekend_lookup
     if recent_weekend_analogs > 0 and resolved_weekend_lookup is None:
         resolved_weekend_lookup = _resolve_selector_weekend_like_lookup(
             selector_features_path=selector_features_path,
             recent_weekend_analogs=recent_weekend_analogs,
+            unique_id=unique_id,
         )
 
     hourly_series = _truncate_hourly_history(
@@ -851,6 +969,7 @@ def tune_analog_holidays_optuna(
     scale_method_choices: Optional[Sequence[Optional[str] | str]] = None,
     initial_n_components: int = 3,
     initial_regressor_params: Optional[dict[str, object]] = None,
+    optuna_min_k: int = 3,
     n_trials: int = 25,
     timeout_sec: Optional[int] = 900,
     max_eval_dates: Optional[int] = 12,
@@ -886,10 +1005,12 @@ def tune_analog_holidays_optuna(
         selector_features_path=selector_features_path,
         cluster_column=cluster_column,
         match_target_cluster=match_target_cluster,
+        unique_id=unique_id,
     )
     selector_weekend_lookup = _resolve_selector_weekend_like_lookup(
         selector_features_path=selector_features_path,
         recent_weekend_analogs=recent_weekend_analogs,
+        unique_id=unique_id,
     )
     history_df = df_region.loc[
         (df_region["date"] < train_end_ts) & complete_mask
@@ -933,7 +1054,10 @@ def tune_analog_holidays_optuna(
         .tolist()
     )
 
-    optuna_min_k = 3
+    optuna_min_k = int(optuna_min_k)
+    if optuna_min_k < 1:
+        raise ValueError(f"optuna_min_k must be >= 1, got {optuna_min_k}.")
+
     available_special_days = int(special_mask_history.sum())
     if available_special_days < 1:
         raise ValueError(
@@ -1026,7 +1150,7 @@ def tune_analog_holidays_optuna(
             f"target_date={train_end_ts.date()} after applying the special-day filters."
         )
 
-    # Search bounds for k: lower bound stays fixed at 3, while the upper bound
+    # Search bounds for k: lower bound comes from optuna_min_k, while the upper bound
     # is the smallest realizable analog pool across retained evaluation folds
     # and the final target run, capped at 24.
     optuna_max_k = min(final_target_analog_cap, min(eligible_k_caps), 24)
@@ -1050,7 +1174,7 @@ def tune_analog_holidays_optuna(
             resolved_scale_method = scale_method
 
         # k         – number of nearest special-day analogs to keep.
-        #             Lower bound is fixed at 3; upper bound is the smallest
+        #             Lower bound comes from optuna_min_k; upper bound is the smallest
         #             realizable analog pool across the retained folds and the
         #             final target run, capped at 24.
         k = trial.suggest_int("k", optuna_min_k, optuna_max_k)
@@ -1203,7 +1327,7 @@ def run_analog_holidays_batch(
     expected_target_label: Optional[str] = None,
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
-    match_target_cluster: bool = False,
+    match_target_cluster: bool = True,
     recent_weekend_analogs: int = 0,
 ) -> AnalogHolidayBatchResult:
     """Run AnalogSpecialDays over a batch of target dates and summarize results."""
@@ -1213,10 +1337,12 @@ def run_analog_holidays_batch(
         selector_features_path=selector_features_path,
         cluster_column=cluster_column,
         match_target_cluster=match_target_cluster,
+        unique_id=unique_id,
     )
     selector_weekend_lookup = _resolve_selector_weekend_like_lookup(
         selector_features_path=selector_features_path,
         recent_weekend_analogs=recent_weekend_analogs,
+        unique_id=unique_id,
     )
     runs: Dict[str, AnalogHolidayRun] = {}
     rows = []
@@ -1581,6 +1707,42 @@ def _format_metric_value(value: float, decimals: int = 2, suffix: str = "") -> s
     return f"{value:.{decimals}f}{suffix}"
 
 
+def _format_panel_config_value(value: object, default: str = "n/a") -> str:
+    if value is None or pd.isna(value):
+        return default
+    if isinstance(value, float) and np.isfinite(value) and float(value).is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _build_panel_config_row(row: pd.Series) -> str:
+    k_value = row.get("k", np.nan)
+    total_available = row.get("optuna_k_max", np.nan)
+    if pd.isna(total_available):
+        total_available = row.get("selected_analogs", np.nan)
+
+    if pd.notna(k_value) and pd.notna(total_available):
+        k_text = f"k={int(float(k_value))}/{int(float(total_available))}"
+    elif pd.notna(k_value):
+        k_text = f"k={int(float(k_value))}/n/a"
+    else:
+        k_text = "k=n/a"
+
+    scale_method = _format_panel_config_value(row.get("scale_method", pd.NA), default="None")
+    typedist = _format_panel_config_value(row.get("typedist", pd.NA))
+    typereg = _format_panel_config_value(row.get("typereg", pd.NA))
+    n_components = _format_panel_config_value(row.get("n_components", pd.NA))
+    filter_by_cluster = row.get("filter_by_cluster", row.get("match_target_cluster", pd.NA))
+    filter_by_cluster_text = _format_panel_config_value(filter_by_cluster)
+
+    return (
+        f"{k_text} | scale_method={scale_method} |\n"
+        f"typedist={typedist} |\n"
+        f"typereg={typereg} | n_components={n_components}\n"
+        f"filter_by_cluster={filter_by_cluster_text}"
+    )
+
+
 def _build_panel_metric_rows(row: pd.Series) -> list[str]:
     mape_38 = _row_metric_value(row, "mape_38_pct", "mape_window_pct", "mape_24h_pct")
     mape_14 = _row_metric_value(row, "mape_14_pct", "mape_head14_pct")
@@ -1812,13 +1974,13 @@ def plot_batch_inference_grid(
             )
 
         cluster_value = row.get("analog_cluster", pd.NA)
-        k_text = f" | k={int(row['k'])}" if pd.notna(row.get("k", np.nan)) else ""
+        config_row = _build_panel_config_row(row)
         metric_rows = _build_panel_metric_rows(row)
 
         label_text = holiday_label or "unlabeled"
         cluster_text = f"cluster={cluster_value}" if pd.notna(cluster_value) else "cluster=n/a"
         ax.set_title(
-            f"{target_date} | {label_text} | {cluster_text}{k_text}\n" + "\n".join(metric_rows),
+            f"{target_date} | {label_text} | {cluster_text}\n{config_row}\n" + "\n".join(metric_rows),
             fontsize=12,
         )
         ax.grid(alpha=0.2)
@@ -1846,10 +2008,10 @@ def plot_batch_inference_grid(
     if title is None:
         sample_run = next(iter(batch_result.runs.values()), None)
         if sample_run is None:
-            title = "Inferencias batch"
+            title = "Batch inference"
         else:
             title = (
-                f"Inferencias batch | {sample_run.unique_id} | {sample_run.typereg} | "
+                f"Batch inference | {sample_run.unique_id} | {sample_run.typereg} | "
                 f"{sample_run.typedist} | k={sample_run.k}"
             )
     top_margin = 0.89 if legend_handles and legend_labels else 0.93
@@ -1888,23 +2050,27 @@ def plot_batch_pair_sequences_grid(
 
     for ax, (target_date, holiday_label) in zip(axes, batch_result.target_items):
         run = batch_result.runs.get(target_date)
-        label_text = holiday_label or "sin etiqueta"
+        label_text = holiday_label or "unlabeled"
 
         metric_row = metrics_by_date.get(target_date)
         if metric_row is not None:
-            k_val = metric_row.get("k", None)
             cluster_val = metric_row.get("analog_cluster", pd.NA)
+            config_row = _build_panel_config_row(metric_row)
             metric_rows = _build_panel_metric_rows(metric_row)
         else:
-            k_val = getattr(run, "k", None) if run is not None else None
             cluster_val = pd.NA
+            config_row = (
+                f"k={getattr(run, 'k', 'n/a')}/n/a | scale_method={getattr(run, 'scale_method', None) or 'None'} |\n"
+                f"typedist={getattr(run, 'typedist', 'n/a')} |\n"
+                f"typereg={getattr(run, 'typereg', 'n/a')} | n_components={getattr(run, 'n_components', 'n/a')}\n"
+                f"filter_by_cluster=n/a"
+            ) if run is not None else "k=n/a | scale_method=None |\ntypedist=n/a |\ntypereg=n/a | n_components=n/a\nfilter_by_cluster=n/a"
             metric_rows = [
                 "MAPE_38=n/a | MAPE_14=n/a | MAPE_24=n/a",
                 "MAE_38=n/a | MAE_14=n/a | MPE_24=n/a",
                 "BIAS_38=n/a | BIAS_14=n/a | BIAS_24=n/a",
             ]
 
-        k_text = f"k={int(k_val)}" if k_val is not None and not (isinstance(k_val, float) and np.isnan(k_val)) else "k=n/a"
         cluster_text = f"cluster={cluster_val}" if pd.notna(cluster_val) else "cluster=n/a"
 
         if run is not None:
@@ -1917,12 +2083,13 @@ def plot_batch_pair_sequences_grid(
             date_pair_text = f"{prev_ts.date()}  |  {target_ts.date()}"
 
         panel_title = (
-            f"{label_text} | {cluster_text} | {k_text}\n"
+            f"{label_text} | {cluster_text}\n"
+            f"{config_row}\n"
             f"{date_pair_text}\n"
             f"{metric_rows[0]}\n"
             f"{metric_rows[1]}\n"
             f"{metric_rows[2]}\n"
-            f"← contexto            ventana objetivo →"
+            f"<-pre-holiday (X / Y)            target holiday (X' / Y') ->"
         )
 
         if run is None:
@@ -1952,11 +2119,11 @@ def plot_batch_pair_sequences_grid(
         sample_run = next(iter(batch_result.runs.values()), None)
         if sample_run is not None:
             title = (
-                f"X/X2 y Y/Y2 por fecha pronosticada | {sample_run.unique_id} | "
+                f"X/X' and Y/Y' by forecast date | {sample_run.unique_id} | "
                 f"{sample_run.typereg} | {sample_run.typedist} | k={sample_run.k}"
             )
         else:
-            title = "X/X2 y Y/Y2 por fecha pronosticada"
+            title = "X/X' and Y/Y' by forecast date"
 
     fig.suptitle(title, fontsize=15, y=1.01, color="#ff8000")
     fig.tight_layout()
@@ -2092,9 +2259,9 @@ def plot_analog_pair_sequences(
     max_pairs: Optional[int] = None,
     ax=None,
     adjusted_forecast_profile: Optional[np.ndarray] = None,
-    adjusted_forecast_label: str = "Forecast Y2 ajustado",
+    adjusted_forecast_label: str = "Adjusted forecast Y'",
 ):
-    """Plot historical X/X2 pairs together with the forecast Y2 sequence."""
+    """Plot historical X/X' pairs together with the forecast Y' sequence."""
     pair_length = run.season_length
     horizon = pair_length * 2
     hours = _pair_relative_hour_axis(run)
@@ -2123,7 +2290,7 @@ def plot_analog_pair_sequences(
     if pair_count > 0:
         pair_paths = np.hstack([context_profiles[:pair_count], future_profiles[:pair_count]])
         for idx, pair in enumerate(pair_paths):
-            label = "Historical X/X2 pairs" if idx == 0 else None
+            label = "Historical X/X' pairs" if idx == 0 else None
             ax.plot(hours, pair, color="#669bbc", alpha=0.28, linewidth=1.4, label=label)
 
     context_hours = hours[:pair_length]
@@ -2136,7 +2303,7 @@ def plot_analog_pair_sequences(
             run.previous_day_profile,
             color="#000000",
             linewidth=2.2,
-            label="Y (context)",
+            label="Y (pre-holiday)",
         )
 
     ax.plot(
@@ -2144,7 +2311,7 @@ def plot_analog_pair_sequences(
         run.forecast_profile,
         color="#d62828",
         linewidth=2.8,
-        label="Forecast Y2",
+        label="Forecast Y'",
     )
 
     if adjusted_forecast_profile is not None:
@@ -2165,7 +2332,7 @@ def plot_analog_pair_sequences(
             run.actual_profile,
             color="#000000",
             linewidth=2.0,
-            label="Actual Y2",
+            label="Actual Y'",
         )
 
     forecast_boundary = forecast_hours[0] - 0.5
@@ -2175,11 +2342,7 @@ def plot_analog_pair_sequences(
     if run.forecast_start_offset_hours > 0:
         ax.axvline(-0.5, color="#6c757d", linestyle="--", linewidth=1.0, label="Holiday start")
 
-    ymax = ax.get_ylim()[1]
-    ax.text(context_hours.mean(), ymax, "X", color="#ff8000", ha="center", va="bottom")
-    ax.text(forecast_hours.mean(), ymax, "X2 / Y2", color="#d62828", ha="center", va="bottom")
-
-    ax.set_title("X/X2 selection and Y2 forecast", fontsize="x-large", color="#ff8000")
+    ax.set_title("X/X' selection and Y' forecast", fontsize="x-large", color="#ff8000")
     ax.set_xlabel("Hour relative to holiday start", color="#ff8000", fontsize="large")
     ax.set_ylabel("Demand", color="#ff8000", fontsize="large")
     ax.set_xticks(hours[::tick_step])

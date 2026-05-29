@@ -116,6 +116,7 @@ def _resolve_selector_cluster_lookup(
     selector_features_path: Path | str | None,
     cluster_column: str,
     match_target_cluster: bool,
+    unique_id: str | None = None,
 ) -> Optional[dict[pd.Timestamp, object]]:
     if not match_target_cluster:
         return None
@@ -124,7 +125,11 @@ def _resolve_selector_cluster_lookup(
         DEFAULT_SELECTOR_FEATURES_PATH
         if selector_features_path is None else Path(selector_features_path)
     )
-    return load_selector_cluster_lookup(resolved_path, cluster_column=cluster_column)
+    return load_selector_cluster_lookup(
+        resolved_path,
+        cluster_column=cluster_column,
+        unique_id=unique_id,
+    )
 
 
 def _get_target_cluster(
@@ -241,7 +246,7 @@ def run_analog_pre_holiday(
     holiday_label: Optional[str] = None,
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
-    match_target_cluster: bool = False,
+    match_target_cluster: bool = True,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
 ) -> PreHolidayRun:
     """Forecast the ``previously_w_hours`` window before ``target_date``.
@@ -291,6 +296,7 @@ def run_analog_pre_holiday(
             selector_features_path=selector_features_path,
             cluster_column=cluster_column,
             match_target_cluster=match_target_cluster,
+            unique_id=unique_id,
         )
     pre_holiday_mask = _build_pre_holiday_mask(
         df_hist=df_hist,
@@ -384,7 +390,7 @@ def run_analog_pre_holidays_batch(
     typereg: str = "PCR",
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
-    match_target_cluster: bool = False,
+    match_target_cluster: bool = True,
     output_dir: Optional[Path | str] = None,
     output_path: Optional[Path | str] = None,
     write_csv: bool = True,
@@ -404,11 +410,15 @@ def run_analog_pre_holidays_batch(
         resolved_ids = [str(u) for u in unique_ids]
 
     target_items = _normalize_target_items(target_dates)
-    selector_cluster_lookup = _resolve_selector_cluster_lookup(
-        selector_features_path=selector_features_path,
-        cluster_column=cluster_column,
-        match_target_cluster=match_target_cluster,
-    )
+    selector_cluster_lookup_by_id = {
+        uid: _resolve_selector_cluster_lookup(
+            selector_features_path=selector_features_path,
+            cluster_column=cluster_column,
+            match_target_cluster=match_target_cluster,
+            unique_id=uid,
+        )
+        for uid in resolved_ids
+    }
     df_out = df_source.copy()
     runs: Dict[Tuple[str, str], PreHolidayRun] = {}
     rows: List[dict] = []
@@ -435,7 +445,7 @@ def run_analog_pre_holidays_batch(
                     selector_features_path=selector_features_path,
                     cluster_column=cluster_column,
                     match_target_cluster=match_target_cluster,
-                    selector_cluster_lookup=selector_cluster_lookup,
+                    selector_cluster_lookup=selector_cluster_lookup_by_id[uid],
                 )
             except Exception as exc:
                 rows.append({
@@ -588,6 +598,7 @@ def tune_analog_pre_holidays_optuna(
         selector_features_path=selector_features_path,
         cluster_column=cluster_column,
         match_target_cluster=match_target_cluster,
+        unique_id=unique_id,
     )
 
     candidate_dates = _detect_historical_holiday_dates(
@@ -920,7 +931,7 @@ def run_holiday_day(
     holiday_label: Optional[str] = None,
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
-    match_target_cluster: bool = False,
+    match_target_cluster: bool = True,
     selector_cluster_lookup: Optional[dict[pd.Timestamp, object]] = None,
 ) -> HolidayDayRun:
     """Forecast the full 24-h holiday day using ``AnalogSpecialDays``.
@@ -960,6 +971,7 @@ def run_holiday_day(
             selector_features_path=selector_features_path,
             cluster_column=cluster_column,
             match_target_cluster=match_target_cluster,
+            unique_id=unique_id,
         )
     holiday_mask = _build_holiday_day_mask(
         df_hist,
@@ -1017,7 +1029,7 @@ def run_holiday_day_batch(
     typereg: str = "PCR",
     selector_features_path: Path | str | None = None,
     cluster_column: str = "analog_cluster",
-    match_target_cluster: bool = False,
+    match_target_cluster: bool = True,
     output_dir: Optional[Path | str] = None,
     output_path: Optional[Path | str] = None,
     write_csv: bool = True,
@@ -1037,11 +1049,15 @@ def run_holiday_day_batch(
         resolved_ids = [str(u) for u in unique_ids]
 
     target_items = _normalize_target_items(target_dates)
-    selector_cluster_lookup = _resolve_selector_cluster_lookup(
-        selector_features_path=selector_features_path,
-        cluster_column=cluster_column,
-        match_target_cluster=match_target_cluster,
-    )
+    selector_cluster_lookup_by_id = {
+        uid: _resolve_selector_cluster_lookup(
+            selector_features_path=selector_features_path,
+            cluster_column=cluster_column,
+            match_target_cluster=match_target_cluster,
+            unique_id=uid,
+        )
+        for uid in resolved_ids
+    }
     df_out = df_source.copy()
     runs: Dict[Tuple[str, str], HolidayDayRun] = {}
     rows: List[dict] = []
@@ -1067,7 +1083,7 @@ def run_holiday_day_batch(
                     selector_features_path=selector_features_path,
                     cluster_column=cluster_column,
                     match_target_cluster=match_target_cluster,
-                    selector_cluster_lookup=selector_cluster_lookup,
+                    selector_cluster_lookup=selector_cluster_lookup_by_id[uid],
                 )
             except Exception as exc:
                 rows.append({

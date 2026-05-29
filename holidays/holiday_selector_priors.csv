@@ -1,18 +1,137 @@
-anchor_holiday_name,holiday_day_type,history_rows,history_years,inferred_best_matching_weekday,inferred_daily_profile_cluster,inferred_daily_profile_cluster_id,inferred_daily_profile_archetype,inferred_event_profile_cluster,inferred_event_profile_cluster_id
-Benito Juarez's Birthday,H2,4,4,Saturday,B,1,Saturday-like,E,2
-Christmas Day,H2,4,4,Sunday,A,0,Sunday-like,D,1
-Christmas Day,H4,4,4,Sunday,A,0,Sunday-like,D,1
-Christmas Eve,H1,4,4,Saturday,B,1,Saturday-like,E,2
-Constitution Day,H2,4,4,Saturday,B,1,Saturday-like,E,2
-Good Friday,H2,4,4,Sunday,A,0,Sunday-like,E,2
-Holy Saturday,H3,4,4,Saturday,B,1,Saturday-like,E,2
-Holy Saturday,H4,4,4,Saturday,B,1,Saturday-like,E,2
-Independence Day,H2,4,4,Sunday,A,0,Sunday-like,C,0
-Labor Day,H2,4,4,Sunday,A,0,Sunday-like,C,0
-Maundy Thursday,H1,4,4,Saturday,B,1,Saturday-like,C,0
-Mexican Revolution Day,H2,4,4,Saturday,B,1,Saturday-like,E,2
-New Year's Day,H2,1,1,Sunday,A,0,Sunday-like,D,1
-New Year's Day,H3,2,2,Sunday,A,0,Sunday-like,D,1
-New Year's Day,H4,2,2,Sunday,A,0,Sunday-like,D,1
-New Year's Eve,H1,2,2,Saturday,A,0,Saturday-like,D,1
-New Year's Eve,H2,2,2,Saturday,B,1,Saturday-like,E,2
+unique_id,anchor_holiday_name,holiday_day_type,history_rows,history_years,inferred_best_matching_weekday,inferred_daily_profile_cluster,inferred_daily_profile_cluster_id,inferred_daily_profile_archetype,inferred_event_profile_cluster,inferred_event_profile_cluster_id
+SEN_demand_CEL,Benito Juarez's Birthday,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,Christmas Day,H2,4,4,Sunday,B,1,Sunday-like,D,1
+SEN_demand_CEL,Christmas Day,H4,4,4,Sunday,B,1,Sunday-like,D,1
+SEN_demand_CEL,Christmas Eve,H1,4,4,Saturday,A,0,Friday-like,C,0
+SEN_demand_CEL,Constitution Day,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,Good Friday,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,Holy Saturday,H3,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,Holy Saturday,H4,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,Independence Day,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,Labor Day,H2,4,4,Sunday,B,1,Sunday-like,C,0
+SEN_demand_CEL,Maundy Thursday,H1,4,4,Saturday,A,0,Friday-like,C,0
+SEN_demand_CEL,Mexican Revolution Day,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_CEL,New Year's Day,H2,1,1,Sunday,B,1,Sunday-like,D,1
+SEN_demand_CEL,New Year's Day,H3,2,2,Sunday,B,1,Sunday-like,D,1
+SEN_demand_CEL,New Year's Day,H4,2,2,Saturday,B,1,Sunday-like,D,1
+SEN_demand_CEL,New Year's Eve,H1,2,2,Saturday,B,1,Sunday-like,E,2
+SEN_demand_CEL,New Year's Eve,H2,2,2,Saturday,A,0,Friday-like,E,2
+SEN_demand_NES,Benito Juarez's Birthday,H2,4,4,Saturday,B,1,unclear,C,0
+SEN_demand_NES,Christmas Day,H2,4,4,Sunday,B,1,unclear,D,1
+SEN_demand_NES,Christmas Day,H4,4,4,Sunday,B,1,unclear,D,1
+SEN_demand_NES,Christmas Eve,H1,4,4,Saturday,A,0,Saturday-like,D,1
+SEN_demand_NES,Constitution Day,H2,4,4,Sunday,B,1,unclear,D,1
+SEN_demand_NES,Good Friday,H2,4,4,Saturday,B,1,unclear,C,0
+SEN_demand_NES,Holy Saturday,H3,4,4,Sunday,B,1,unclear,D,1
+SEN_demand_NES,Holy Saturday,H4,4,4,Sunday,B,1,unclear,D,1
+SEN_demand_NES,Independence Day,H2,4,4,Sunday,A,0,Saturday-like,C,0
+SEN_demand_NES,Labor Day,H2,4,4,Sunday,B,1,unclear,C,0
+SEN_demand_NES,Maundy Thursday,H1,4,4,Saturday,A,0,Saturday-like,C,0
+SEN_demand_NES,Mexican Revolution Day,H2,4,4,Sunday,B,1,unclear,C,0
+SEN_demand_NES,New Year's Day,H2,1,1,Sunday,B,1,unclear,D,1
+SEN_demand_NES,New Year's Day,H3,2,2,Sunday,B,1,unclear,D,1
+SEN_demand_NES,New Year's Day,H4,2,2,Sunday,B,1,unclear,D,1
+SEN_demand_NES,New Year's Eve,H1,2,2,Saturday,A,0,Saturday-like,D,1
+SEN_demand_NES,New Year's Eve,H2,2,2,Saturday,B,1,unclear,D,1
+SEN_demand_NOR,Benito Juarez's Birthday,H2,4,4,Tuesday,A,0,Wednesday-like,D,1
+SEN_demand_NOR,Christmas Day,H2,4,4,Sunday,B,1,Sunday-like,D,1
+SEN_demand_NOR,Christmas Day,H4,4,4,Monday,A,0,Wednesday-like,D,1
+SEN_demand_NOR,Christmas Eve,H1,4,4,Saturday,A,0,Wednesday-like,D,1
+SEN_demand_NOR,Constitution Day,H2,4,4,Sunday,A,0,Wednesday-like,D,1
+SEN_demand_NOR,Good Friday,H2,4,4,Sunday,A,0,Wednesday-like,C,0
+SEN_demand_NOR,Holy Saturday,H3,4,4,Sunday,A,0,Sunday-like,D,1
+SEN_demand_NOR,Holy Saturday,H4,4,4,Sunday,A,0,Sunday-like,D,1
+SEN_demand_NOR,Independence Day,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_NOR,Labor Day,H2,4,4,Sunday,B,1,Sunday-like,C,0
+SEN_demand_NOR,Maundy Thursday,H1,4,4,Saturday,A,0,Wednesday-like,C,0
+SEN_demand_NOR,Mexican Revolution Day,H2,4,4,Sunday,A,0,Wednesday-like,C,0
+SEN_demand_NOR,New Year's Day,H2,1,1,Sunday,B,1,Sunday-like,D,1
+SEN_demand_NOR,New Year's Day,H3,2,2,Sunday,B,1,Sunday-like,D,1
+SEN_demand_NOR,New Year's Day,H4,2,2,Sunday,B,1,Sunday-like,D,1
+SEN_demand_NOR,New Year's Eve,H1,2,2,Saturday,A,0,Wednesday-like,D,1
+SEN_demand_NOR,New Year's Eve,H2,2,2,Saturday,A,0,Wednesday-like,D,1
+SEN_demand_NTE,Benito Juarez's Birthday,H2,4,4,Tuesday,A,0,Friday-like,E,2
+SEN_demand_NTE,Christmas Day,H2,4,4,Sunday,B,1,Sunday-like,C,0
+SEN_demand_NTE,Christmas Day,H4,4,4,Tuesday,A,0,Friday-like,C,0
+SEN_demand_NTE,Christmas Eve,H1,4,4,Saturday,B,1,Sunday-like,C,0
+SEN_demand_NTE,Constitution Day,H2,4,4,Thursday,A,0,Friday-like,C,0
+SEN_demand_NTE,Good Friday,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_NTE,Holy Saturday,H3,4,4,Monday,A,0,Friday-like,E,2
+SEN_demand_NTE,Holy Saturday,H4,4,4,Monday,A,0,Friday-like,E,2
+SEN_demand_NTE,Independence Day,H2,4,4,Saturday,A,0,Friday-like,D,1
+SEN_demand_NTE,Labor Day,H2,4,4,Sunday,A,0,Friday-like,D,1
+SEN_demand_NTE,Maundy Thursday,H1,4,4,Saturday,A,0,Friday-like,D,1
+SEN_demand_NTE,Mexican Revolution Day,H2,4,4,Sunday,A,0,Friday-like,C,0
+SEN_demand_NTE,New Year's Day,H2,1,1,Sunday,B,1,Sunday-like,C,0
+SEN_demand_NTE,New Year's Day,H3,2,2,Sunday,B,1,Sunday-like,C,0
+SEN_demand_NTE,New Year's Day,H4,2,2,Sunday,B,1,Sunday-like,C,0
+SEN_demand_NTE,New Year's Eve,H1,2,2,Saturday,A,0,Friday-like,C,0
+SEN_demand_NTE,New Year's Eve,H2,2,2,Saturday,A,0,Friday-like,C,0
+SEN_demand_OCC,Benito Juarez's Birthday,H2,4,4,Monday,A,0,unclear,E,2
+SEN_demand_OCC,Christmas Day,H2,4,4,Sunday,B,1,Sunday-like,D,1
+SEN_demand_OCC,Christmas Day,H4,4,4,Sunday,B,1,Sunday-like,D,1
+SEN_demand_OCC,Christmas Eve,H1,4,4,Saturday,A,0,Sunday-like,E,2
+SEN_demand_OCC,Constitution Day,H2,4,4,Tuesday,A,0,unclear,E,2
+SEN_demand_OCC,Good Friday,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_OCC,Holy Saturday,H3,4,4,Monday,A,0,unclear,E,2
+SEN_demand_OCC,Holy Saturday,H4,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_OCC,Independence Day,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_OCC,Labor Day,H2,4,4,Sunday,B,1,Sunday-like,C,0
+SEN_demand_OCC,Maundy Thursday,H1,4,4,Saturday,A,0,unclear,C,0
+SEN_demand_OCC,Mexican Revolution Day,H2,4,4,Sunday,A,0,Sunday-like,E,2
+SEN_demand_OCC,New Year's Day,H2,1,1,Sunday,B,1,Sunday-like,D,1
+SEN_demand_OCC,New Year's Day,H3,2,2,Sunday,B,1,Sunday-like,D,1
+SEN_demand_OCC,New Year's Day,H4,2,2,Monday,A,0,unclear,D,1
+SEN_demand_OCC,New Year's Eve,H1,2,2,Saturday,A,0,Sunday-like,D,1
+SEN_demand_OCC,New Year's Eve,H2,2,2,Saturday,A,0,Sunday-like,E,2
+SEN_demand_ORI,Benito Juarez's Birthday,H2,4,4,Saturday,A,0,Saturday-like,E,2
+SEN_demand_ORI,Christmas Day,H2,4,4,Sunday,A,0,Saturday-like,D,1
+SEN_demand_ORI,Christmas Day,H4,4,4,Wednesday,A,0,Saturday-like,D,1
+SEN_demand_ORI,Christmas Eve,H1,4,4,Saturday,A,0,Saturday-like,E,2
+SEN_demand_ORI,Constitution Day,H2,4,4,Saturday,A,0,Saturday-like,D,1
+SEN_demand_ORI,Good Friday,H2,4,4,Sunday,B,1,Sunday-like,E,2
+SEN_demand_ORI,Holy Saturday,H3,4,4,Monday,A,0,Saturday-like,E,2
+SEN_demand_ORI,Holy Saturday,H4,4,4,Monday,A,0,Saturday-like,E,2
+SEN_demand_ORI,Independence Day,H2,4,4,Sunday,B,1,Sunday-like,C,0
+SEN_demand_ORI,Labor Day,H2,4,4,Saturday,B,1,Sunday-like,C,0
+SEN_demand_ORI,Maundy Thursday,H1,4,4,Sunday,B,1,Sunday-like,C,0
+SEN_demand_ORI,Mexican Revolution Day,H2,4,4,Sunday,A,0,Saturday-like,E,2
+SEN_demand_ORI,New Year's Day,H2,1,1,Sunday,B,1,Sunday-like,D,1
+SEN_demand_ORI,New Year's Day,H3,2,2,Sunday,A,0,Saturday-like,D,1
+SEN_demand_ORI,New Year's Day,H4,2,2,Sunday,B,1,Sunday-like,D,1
+SEN_demand_ORI,New Year's Eve,H1,2,2,Sunday,A,0,Saturday-like,D,1
+SEN_demand_ORI,New Year's Eve,H2,2,2,Saturday,A,0,Saturday-like,E,2
+SEN_demand_PEN,Benito Juarez's Birthday,H2,4,4,Sunday,B,1,unclear,D,1
+SEN_demand_PEN,Christmas Day,H2,4,4,Sunday,B,1,unclear,C,0
+SEN_demand_PEN,Christmas Day,H4,4,4,Sunday,B,1,unclear,C,0
+SEN_demand_PEN,Christmas Eve,H1,4,4,Saturday,B,1,unclear,C,0
+SEN_demand_PEN,Constitution Day,H2,4,4,Saturday,B,1,unclear,C,0
+SEN_demand_PEN,Good Friday,H2,4,4,Sunday,A,0,unclear,E,2
+SEN_demand_PEN,Holy Saturday,H3,4,4,Monday,B,1,unclear,E,2
+SEN_demand_PEN,Holy Saturday,H4,4,4,Monday,B,1,unclear,E,2
+SEN_demand_PEN,Independence Day,H2,4,4,Sunday,A,0,unclear,D,1
+SEN_demand_PEN,Labor Day,H2,4,4,Sunday,A,0,unclear,C,0
+SEN_demand_PEN,Maundy Thursday,H1,4,4,Sunday,A,0,unclear,D,1
+SEN_demand_PEN,Mexican Revolution Day,H2,4,4,Sunday,B,1,unclear,E,2
+SEN_demand_PEN,New Year's Day,H2,1,1,Sunday,B,1,unclear,C,0
+SEN_demand_PEN,New Year's Day,H3,2,2,Sunday,B,1,unclear,C,0
+SEN_demand_PEN,New Year's Day,H4,2,2,Sunday,B,1,unclear,C,0
+SEN_demand_PEN,New Year's Eve,H1,2,2,Sunday,B,1,unclear,C,0
+SEN_demand_PEN,New Year's Eve,H2,2,2,Saturday,B,1,unclear,E,2
+SEN_demand_SIN,Benito Juarez's Birthday,H2,4,4,Saturday,B,1,Thursday-like,E,2
+SEN_demand_SIN,Christmas Day,H2,4,4,Sunday,A,0,Sunday-like,D,1
+SEN_demand_SIN,Christmas Day,H4,4,4,Sunday,B,1,Thursday-like,D,1
+SEN_demand_SIN,Christmas Eve,H1,4,4,Saturday,B,1,Thursday-like,E,2
+SEN_demand_SIN,Constitution Day,H2,4,4,Saturday,B,1,Thursday-like,E,2
+SEN_demand_SIN,Good Friday,H2,4,4,Sunday,A,0,Sunday-like,E,2
+SEN_demand_SIN,Holy Saturday,H3,4,4,Saturday,B,1,Thursday-like,E,2
+SEN_demand_SIN,Holy Saturday,H4,4,4,Saturday,A,0,Sunday-like,E,2
+SEN_demand_SIN,Independence Day,H2,4,4,Sunday,A,0,Sunday-like,C,0
+SEN_demand_SIN,Labor Day,H2,4,4,Sunday,A,0,Sunday-like,C,0
+SEN_demand_SIN,Maundy Thursday,H1,4,4,Saturday,A,0,Sunday-like,C,0
+SEN_demand_SIN,Mexican Revolution Day,H2,4,4,Saturday,B,1,Thursday-like,E,2
+SEN_demand_SIN,New Year's Day,H2,1,1,Sunday,A,0,Sunday-like,D,1
+SEN_demand_SIN,New Year's Day,H3,2,2,Sunday,A,0,Sunday-like,D,1
+SEN_demand_SIN,New Year's Day,H4,2,2,Monday,B,1,Thursday-like,D,1
+SEN_demand_SIN,New Year's Eve,H1,2,2,Saturday,A,0,Sunday-like,D,1
+SEN_demand_SIN,New Year's Eve,H2,2,2,Saturday,B,1,Thursday-like,E,2

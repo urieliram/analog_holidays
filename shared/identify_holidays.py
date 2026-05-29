@@ -2420,6 +2420,7 @@ _SELECTOR_PROFILE_COLUMNS = [
 ]
 
 _SELECTOR_FEATURE_COLUMNS = [
+    'unique_id',
     'holiday_name',
     'anchor_holiday_name',
     'date',
@@ -2433,6 +2434,21 @@ _SELECTOR_FEATURE_COLUMNS = [
     'is_observed_monday_rule',
     *_SELECTOR_PROFILE_COLUMNS,
 ]
+
+
+def _resolve_selector_group_cols(
+    group_cols: tuple[str, ...],
+    *column_sources,
+) -> tuple[str, ...]:
+    """Keep selector grouping series-aware when ``unique_id`` is available."""
+    resolved_group_cols = tuple(group_cols)
+    if 'unique_id' in resolved_group_cols:
+        return resolved_group_cols
+
+    if column_sources and all('unique_id' in set(source) for source in column_sources):
+        return ('unique_id', *resolved_group_cols)
+
+    return resolved_group_cols
 
 
 def _load_selector_holiday_metadata(holidays_path: Path | str | None) -> dict[str, dict]:
@@ -2610,6 +2626,9 @@ def _finalize_selector_feature_frame(
     selector_df = selector_df.copy()
     selector_df['date'] = pd.to_datetime(selector_df['date']).dt.normalize()
 
+    if 'unique_id' not in selector_df.columns:
+        selector_df['unique_id'] = pd.NA
+
     for col_name in _SELECTOR_PROFILE_COLUMNS:
         if col_name not in selector_df.columns:
             selector_df[col_name] = pd.NA
@@ -2640,6 +2659,7 @@ def build_holiday_selector_features(
     cluster_ab_results: dict,
     df_phol: pd.DataFrame,
     holidays_path: Path | str | None = None,
+    unique_id: str | None = None,
 ) -> pd.DataFrame:
     """Build a selector-ready holiday feature table for the analog workflow.
 
@@ -2675,6 +2695,8 @@ def build_holiday_selector_features(
     """
     available_dates = set(pd.to_datetime(df_wide.index).normalize())
     selector_df = _build_selector_base_rows(df_holidays, available_dates)
+    if unique_id is not None and not selector_df.empty:
+        selector_df['unique_id'] = str(unique_id)
 
     if selector_df.empty:
         return _empty_selector_feature_frame()
@@ -2784,7 +2806,7 @@ def _build_selector_prior_row(
     group_cols: tuple[str, ...],
     group_df: pd.DataFrame,
     inferred_cols: list[str],
-    anchor_fallback_lookup: dict[str, dict],
+    anchor_fallback_lookup: dict[object, dict],
 ) -> dict:
     """Build a single prior row with anchor-holiday fallback when needed."""
     row = {col_name: group_key[idx] for idx, col_name in enumerate(group_cols)}
@@ -2796,7 +2818,11 @@ def _build_selector_prior_row(
         value = _selector_modal_value(group_df[col_name])
         if pd.isna(value):
             anchor_name = row.get('anchor_holiday_name')
-            value = anchor_fallback_lookup.get(anchor_name, {}).get(col_name, pd.NA)
+            anchor_lookup_key = (
+                (row.get('unique_id'), anchor_name)
+                if 'unique_id' in row else anchor_name
+            )
+            value = anchor_fallback_lookup.get(anchor_lookup_key, {}).get(col_name, pd.NA)
             if pd.notna(value):
                 row['prior_resolution_scope'] = 'anchor_holiday_name'
 
@@ -2832,7 +2858,9 @@ def build_holiday_selector_priors(
     pd.DataFrame
         One row per holiday family with inferred labels and support counts.
     """
-    required_cols = set(group_cols)
+    resolved_group_cols = _resolve_selector_group_cols(group_cols, df_selector.columns)
+
+    required_cols = set(resolved_group_cols)
     missing_cols = required_cols - set(df_selector.columns)
     if missing_cols:
         raise ValueError(f'Missing required selector columns: {sorted(missing_cols)}')
@@ -2848,13 +2876,20 @@ def build_holiday_selector_priors(
 
     anchor_fallback_lookup: dict[str, dict] = {}
     if 'anchor_holiday_name' in df_selector.columns:
+        anchor_group_cols = (
+            ('unique_id', 'anchor_holiday_name')
+            if 'unique_id' in df_selector.columns else ('anchor_holiday_name',)
+        )
         anchor_modal_df = _selector_group_modal_frame(
             df_selector,
-            ('anchor_holiday_name',),
+            anchor_group_cols,
             inferred_cols,
         )
         anchor_fallback_lookup = {
-            row['anchor_holiday_name']: {
+            (
+                (row['unique_id'], row['anchor_holiday_name'])
+                if 'unique_id' in anchor_group_cols else row['anchor_holiday_name']
+            ): {
                 col_name: row[col_name]
                 for col_name in inferred_cols
             }
@@ -2862,7 +2897,7 @@ def build_holiday_selector_priors(
         }
 
     summary_rows = []
-    grouped = df_selector.groupby(list(group_cols), dropna=False, sort=True)
+    grouped = df_selector.groupby(list(resolved_group_cols), dropna=False, sort=True)
 
     for group_key, group_df in grouped:
         if not isinstance(group_key, tuple):
@@ -2871,14 +2906,14 @@ def build_holiday_selector_priors(
         summary_rows.append(
             _build_selector_prior_row(
                 group_key=group_key,
-                group_cols=group_cols,
+                group_cols=resolved_group_cols,
                 group_df=group_df,
                 inferred_cols=inferred_cols,
                 anchor_fallback_lookup=anchor_fallback_lookup,
             )
         )
 
-    column_order = list(group_cols) + [
+    column_order = list(resolved_group_cols) + [
         'history_rows',
         'history_years',
         'inferred_best_matching_weekday',
@@ -2889,7 +2924,7 @@ def build_holiday_selector_priors(
         'inferred_event_profile_cluster_id',
     ]
 
-    return pd.DataFrame(summary_rows)[column_order].sort_values(list(group_cols)).reset_index(drop=True)
+    return pd.DataFrame(summary_rows)[column_order].sort_values(list(resolved_group_cols)).reset_index(drop=True)
 
 
 def build_future_holiday_selector_features(
@@ -2900,6 +2935,7 @@ def build_future_holiday_selector_features(
     group_cols: tuple[str, ...] = ('anchor_holiday_name', 'holiday_day_type'),
     start_date: pd.Timestamp | str | None = None,
     end_date: pd.Timestamp | str | None = None,
+    unique_id: str | None = None,
 ) -> pd.DataFrame:
     """Build ex-ante selector rows for future holidays using historical priors.
 
@@ -2908,7 +2944,9 @@ def build_future_holiday_selector_features(
     the future H1/H2/H3/H4 rows from the holiday calendar, then fills the
     profile-related fields from ``df_priors`` so the export stays leakage-free.
     """
-    required_cols = set(group_cols)
+    resolved_group_cols = _resolve_selector_group_cols(group_cols, df_priors.columns)
+
+    required_cols = set(resolved_group_cols)
     missing_cols = required_cols - set(df_priors.columns)
     if missing_cols:
         raise ValueError(f'Missing required prior columns: {sorted(missing_cols)}')
@@ -2929,6 +2967,11 @@ def build_future_holiday_selector_features(
     if selector_df.empty:
         return _empty_selector_feature_frame()
 
+    if 'unique_id' in resolved_group_cols:
+        if unique_id is None:
+            raise ValueError('unique_id is required when selector priors are series-specific.')
+        selector_df['unique_id'] = str(unique_id)
+
     if start_date is not None:
         selector_df = selector_df[
             selector_df['date'] >= pd.Timestamp(start_date).normalize()
@@ -2940,13 +2983,13 @@ def build_future_holiday_selector_features(
     if selector_df.empty:
         return _empty_selector_feature_frame()
 
-    prior_cols = list(group_cols) + list(inferred_map.values())
+    prior_cols = list(resolved_group_cols) + list(inferred_map.values())
     if 'prior_resolution_scope' in df_priors.columns:
         prior_cols.append('prior_resolution_scope')
 
     selector_df = selector_df.merge(
-        df_priors[prior_cols].drop_duplicates(subset=list(group_cols)),
-        on=list(group_cols),
+        df_priors[prior_cols].drop_duplicates(subset=list(resolved_group_cols)),
+        on=list(resolved_group_cols),
         how='left',
     )
     for target_col, source_col in inferred_map.items():
@@ -3006,10 +3049,15 @@ def assign_holiday_selector_analog_clusters(
         ``analog_cluster_catalog`` – mapping from internal criterion value to
                                      stable analog label
     """
+    resolved_group_cols = _resolve_selector_group_cols(
+        group_cols,
+        df_selector.columns,
+        df_priors.columns,
+    )
     selector_col, prior_col = _resolve_analog_criterion_columns(criterion)
 
-    missing_selector = set(group_cols) - set(df_selector.columns)
-    missing_priors = set(group_cols) - set(df_priors.columns)
+    missing_selector = set(resolved_group_cols) - set(df_selector.columns)
+    missing_priors = set(resolved_group_cols) - set(df_priors.columns)
     if missing_selector:
         raise ValueError(f'Missing selector columns: {sorted(missing_selector)}')
     if missing_priors:
@@ -3020,10 +3068,10 @@ def assign_holiday_selector_analog_clusters(
         if col_name in df_clusters.columns:
             df_clusters = df_clusters.drop(columns=[col_name])
 
-    merge_cols = list(group_cols) + [prior_col]
+    merge_cols = list(resolved_group_cols) + [prior_col]
     df_clusters = df_clusters.merge(
-        df_priors[merge_cols].drop_duplicates(subset=list(group_cols)),
-        on=list(group_cols),
+        df_priors[merge_cols].drop_duplicates(subset=list(resolved_group_cols)),
+        on=list(resolved_group_cols),
         how='left',
     )
 
@@ -3073,6 +3121,7 @@ def assign_holiday_selector_analog_clusters(
 def load_selector_cluster_lookup(
     selector_path: Path | str,
     cluster_column: str = 'analog_cluster',
+    unique_id: str | None = None,
 ) -> dict[pd.Timestamp, object]:
     """Load a per-date selector cluster lookup from an exported selector CSV."""
     selector_path = Path(selector_path)
@@ -3086,6 +3135,21 @@ def load_selector_cluster_lookup(
         raise ValueError(
             f'Selector CSV {selector_path} must contain the cluster column {cluster_column!r}.'
         )
+
+    if 'unique_id' in df_selector.columns:
+        available_unique_ids = pd.Series(df_selector['unique_id']).dropna().astype(str).unique().tolist()
+        if unique_id is not None:
+            df_selector = df_selector[df_selector['unique_id'].astype(str) == str(unique_id)].copy()
+            if df_selector.empty:
+                raise ValueError(
+                    f'Selector CSV {selector_path} has no rows for unique_id={unique_id!r}.'
+                )
+        elif len(available_unique_ids) > 1:
+            preview = ', '.join(sorted(available_unique_ids)[:5])
+            raise ValueError(
+                'Selector CSV contains multiple unique_id values. '
+                f'Pass unique_id to select one series: {preview}'
+            )
 
     df_clusters = df_selector[['date', cluster_column]].copy()
     df_clusters['date'] = pd.to_datetime(df_clusters['date']).dt.normalize()
@@ -3129,20 +3193,31 @@ def identify_future_holiday_analog_cluster(
     if 'anchor_holiday_name' not in candidate_series and 'holiday_name' in candidate_series:
         candidate_series['anchor_holiday_name'] = candidate_series['holiday_name']
 
-    missing = [col_name for col_name in group_cols if col_name not in candidate_series or pd.isna(candidate_series[col_name])]
+    resolved_group_cols = _resolve_selector_group_cols(
+        group_cols,
+        candidate_series.index,
+        df_priors.columns,
+    )
+
+    if 'unique_id' in resolved_group_cols and ('unique_id' not in candidate_series or pd.isna(candidate_series['unique_id'])):
+        prior_unique_ids = pd.Series(df_priors['unique_id']).dropna().astype(str).unique().tolist()
+        if len(prior_unique_ids) == 1:
+            candidate_series['unique_id'] = prior_unique_ids[0]
+
+    missing = [col_name for col_name in resolved_group_cols if col_name not in candidate_series or pd.isna(candidate_series[col_name])]
     if missing:
         raise ValueError(f'Candidate is missing required analog-key fields: {missing}')
 
     selector_col, prior_col = _resolve_analog_criterion_columns(criterion)
 
     prior_match = df_priors.copy()
-    for col_name in group_cols:
+    for col_name in resolved_group_cols:
         prior_match = prior_match[prior_match[col_name] == candidate_series[col_name]]
 
     if prior_match.empty:
         raise ValueError(
             'No selector prior was found for the candidate. '
-            f'Expected a match on {list(group_cols)}.'
+            f'Expected a match on {list(resolved_group_cols)}.'
         )
 
     prior_row = prior_match.sort_values('history_rows', ascending=False).iloc[0]
