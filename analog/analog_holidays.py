@@ -1561,6 +1561,56 @@ def _hour_tick_step(length: int) -> int:
     return 6
 
 
+def _row_metric_value(row: pd.Series, *keys: str) -> float:
+    for key in keys:
+        if key not in row.index:
+            continue
+        value = row.get(key)
+        try:
+            value_float = float(value)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(value_float):
+            return value_float
+    return np.nan
+
+
+def _format_metric_value(value: float, decimals: int = 2, suffix: str = "") -> str:
+    if not np.isfinite(value):
+        return "n/a"
+    return f"{value:.{decimals}f}{suffix}"
+
+
+def _build_panel_metric_rows(row: pd.Series) -> list[str]:
+    mape_38 = _row_metric_value(row, "mape_38_pct", "mape_window_pct", "mape_24h_pct")
+    mape_14 = _row_metric_value(row, "mape_14_pct", "mape_head14_pct")
+    mape_24 = _row_metric_value(row, "mape_24_pct", "mape_holiday24_raw_pct")
+    mae_38 = _row_metric_value(row, "mae_38", "mae_window", "mae_24h")
+    mae_14 = _row_metric_value(row, "mae_14", "mae_head14")
+    mpe_24 = _row_metric_value(row, "mpe_24_pct")
+    bias_38 = _row_metric_value(row, "bias_38")
+    bias_14 = _row_metric_value(row, "bias_14", "head_bias_mean")
+    bias_24 = _row_metric_value(row, "bias_24", "tail_bias_mean")
+
+    return [
+        " | ".join([
+            f"MAPE_38={_format_metric_value(mape_38, suffix='%')}",
+            f"MAPE_14={_format_metric_value(mape_14, suffix='%')}",
+            f"MAPE_24={_format_metric_value(mape_24, suffix='%')}",
+        ]),
+        " | ".join([
+            f"MAE_38={_format_metric_value(mae_38)}",
+            f"MAE_14={_format_metric_value(mae_14)}",
+            f"MPE_24={_format_metric_value(mpe_24, suffix='%')}",
+        ]),
+        " | ".join([
+            f"BIAS_38={_format_metric_value(bias_38)}",
+            f"BIAS_14={_format_metric_value(bias_14)}",
+            f"BIAS_24={_format_metric_value(bias_24)}",
+        ]),
+    ]
+
+
 def plot_forecast_diagnostics(run: AnalogHolidayRun):
     """Plot a two-panel forecast diagnostic figure."""
     hours = _relative_hour_axis(run)
@@ -1761,22 +1811,15 @@ def plot_batch_inference_grid(
                 label="Actual",
             )
 
-        metric_parts = []
-        mape_value = row.get("mape_window_pct", row.get("mape_24h_pct", np.nan))
-        mae_value = row.get("mae_window", row.get("mae_24h", np.nan))
         cluster_value = row.get("analog_cluster", pd.NA)
-        if pd.notna(mape_value):
-            metric_parts.append(f"MAPE {mape_value:.2f}%")
-        if pd.notna(mae_value):
-            metric_parts.append(f"MAE {mae_value:.0f}")
-        if pd.notna(row.get("k", np.nan)):
-            metric_parts.append(f"k={int(row['k'])}")
+        k_text = f" | k={int(row['k'])}" if pd.notna(row.get("k", np.nan)) else ""
+        metric_rows = _build_panel_metric_rows(row)
 
         label_text = holiday_label or "unlabeled"
         cluster_text = f"cluster={cluster_value}" if pd.notna(cluster_value) else "cluster=n/a"
         ax.set_title(
-            f"{target_date} | {label_text} | {cluster_text}\n" + " | ".join(metric_parts),
-            fontsize=10,
+            f"{target_date} | {label_text} | {cluster_text}{k_text}\n" + "\n".join(metric_rows),
+            fontsize=12,
         )
         ax.grid(alpha=0.2)
         ax.set_xticks(hours[::tick_step])
@@ -1811,7 +1854,7 @@ def plot_batch_inference_grid(
             )
     top_margin = 0.89 if legend_handles and legend_labels else 0.93
     fig.tight_layout(rect=(0.0, 0.0, 1.0, top_margin))
-    fig.suptitle(title, fontsize=14, y=0.995)
+    fig.suptitle(title, fontsize=16, y=0.995)
     return fig, axes
 
 
@@ -1820,6 +1863,7 @@ def plot_batch_pair_sequences_grid(
     n_cols: int = 3,
     figsize_per_panel: tuple[float, float] = (5.5, 5.0),
     title: Optional[str] = None,
+    adjusted_forecasts_by_date: Optional[Dict[str, np.ndarray]] = None,
 ):
     """Grid of X/X2 and Y/Y2 pair-sequence plots, one panel per forecasted date."""
     if not batch_result.target_items:
@@ -1848,24 +1892,19 @@ def plot_batch_pair_sequences_grid(
 
         metric_row = metrics_by_date.get(target_date)
         if metric_row is not None:
-            mape_val = metric_row.get("mape_window_pct", metric_row.get("mape_24h_pct", np.nan))
-            mae_val = metric_row.get("mae_window", metric_row.get("mae_24h", np.nan))
             k_val = metric_row.get("k", None)
-            typereg_val = metric_row.get("typereg", "")
-            typedist_val = metric_row.get("typedist", "")
             cluster_val = metric_row.get("analog_cluster", pd.NA)
+            metric_rows = _build_panel_metric_rows(metric_row)
         else:
-            mape_val = np.nan
-            mae_val = np.nan
             k_val = getattr(run, "k", None) if run is not None else None
-            typereg_val = getattr(run, "typereg", "") if run is not None else ""
-            typedist_val = getattr(run, "typedist", "") if run is not None else ""
             cluster_val = pd.NA
+            metric_rows = [
+                "MAPE_38=n/a | MAPE_14=n/a | MAPE_24=n/a",
+                "MAE_38=n/a | MAE_14=n/a | MPE_24=n/a",
+                "BIAS_38=n/a | BIAS_14=n/a | BIAS_24=n/a",
+            ]
 
-        mape_text = f"MAPE={mape_val:.2f}%" if np.isfinite(mape_val) else "MAPE=n/a"
-        mae_text = f"MAE={mae_val:.2f}" if np.isfinite(mae_val) else "MAE=n/a"
         k_text = f"k={int(k_val)}" if k_val is not None and not (isinstance(k_val, float) and np.isnan(k_val)) else "k=n/a"
-        metrics_text = f"{mape_text} | {mae_text} | {k_text} | {typereg_val} | {typedist_val}"
         cluster_text = f"cluster={cluster_val}" if pd.notna(cluster_val) else "cluster=n/a"
 
         if run is not None:
@@ -1878,21 +1917,31 @@ def plot_batch_pair_sequences_grid(
             date_pair_text = f"{prev_ts.date()}  |  {target_ts.date()}"
 
         panel_title = (
-            f"{label_text} | {cluster_text}\n"
+            f"{label_text} | {cluster_text} | {k_text}\n"
             f"{date_pair_text}\n"
-            f"{metrics_text}\n"
+            f"{metric_rows[0]}\n"
+            f"{metric_rows[1]}\n"
+            f"{metric_rows[2]}\n"
             f"← contexto            ventana objetivo →"
         )
 
         if run is None:
             ax.text(0.5, 0.5, "Run unavailable", ha="center", va="center", transform=ax.transAxes)
-            ax.set_title(panel_title, fontsize=9)
+            ax.set_title(panel_title, fontsize=11)
             ax.axis("off")
             continue
 
-        plot_analog_pair_sequences(run, ax=ax)
+        adjusted_forecast_profile = None
+        if adjusted_forecasts_by_date is not None:
+            adjusted_forecast_profile = adjusted_forecasts_by_date.get(target_date)
 
-        ax.set_title(panel_title, fontsize=9, color="#ff8000")
+        plot_analog_pair_sequences(
+            run,
+            ax=ax,
+            adjusted_forecast_profile=adjusted_forecast_profile,
+        )
+
+        ax.set_title(panel_title, fontsize=11, color="#ff8000")
         ax.set_xlabel("")
         ax.set_ylabel("")
 
@@ -1909,7 +1958,7 @@ def plot_batch_pair_sequences_grid(
         else:
             title = "X/X2 y Y/Y2 por fecha pronosticada"
 
-    fig.suptitle(title, fontsize=13, y=1.01, color="#ff8000")
+    fig.suptitle(title, fontsize=15, y=1.01, color="#ff8000")
     fig.tight_layout()
     return fig, axes
 
@@ -2042,6 +2091,8 @@ def plot_analog_pair_sequences(
     run: AnalogHolidayRun,
     max_pairs: Optional[int] = None,
     ax=None,
+    adjusted_forecast_profile: Optional[np.ndarray] = None,
+    adjusted_forecast_label: str = "Forecast Y2 ajustado",
 ):
     """Plot historical X/X2 pairs together with the forecast Y2 sequence."""
     pair_length = run.season_length
@@ -2095,6 +2146,18 @@ def plot_analog_pair_sequences(
         linewidth=2.8,
         label="Forecast Y2",
     )
+
+    if adjusted_forecast_profile is not None:
+        adjusted_forecast_profile = np.asarray(adjusted_forecast_profile, dtype=np.float64)
+        if adjusted_forecast_profile.shape[0] == pair_length:
+            ax.plot(
+                forecast_hours,
+                adjusted_forecast_profile,
+                color="#1d4ed8",
+                linewidth=2.4,
+                linestyle="--",
+                label=adjusted_forecast_label,
+            )
 
     if run.actual_profile is not None:
         ax.plot(
