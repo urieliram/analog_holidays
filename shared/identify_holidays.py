@@ -2272,6 +2272,18 @@ def _display_analog_cluster_38h_days(
     )
 
 
+def _build_analog_cluster_38h_suptitle(
+    analog_cluster_labels: list[str],
+    unique_id: str,
+    selection_criterion: str | None = None,
+) -> str:
+    label_text = '/'.join(str(label) for label in analog_cluster_labels) or 'n/a'
+    title = f'38-h event profiles by analog cluster ({label_text})  |  {unique_id}'
+    if selection_criterion is not None and str(selection_criterion).strip():
+        title += f'\nSelection criterion: {selection_criterion}'
+    return title
+
+
 def _plot_analog_cluster_38h_profiles(
     df_phol_fgh: pd.DataFrame,
     analog_cluster_labels: list[str],
@@ -2279,6 +2291,7 @@ def _plot_analog_cluster_38h_profiles(
     unique_id: str,
     feat_cols: list,
     previously_w_hours: int,
+    selection_criterion: str | None = None,
 ) -> np.ndarray:
     """Plot 38-h profiles grouped by analog-cluster label and return centroids."""
     import matplotlib.pyplot as plt
@@ -2293,7 +2306,11 @@ def _plot_analog_cluster_38h_profiles(
     axes = np.atleast_1d(axes)
 
     fig.suptitle(
-        f'38-h event profiles by analog cluster (F/G/H)  |  {unique_id}',
+        _build_analog_cluster_38h_suptitle(
+            analog_cluster_labels,
+            unique_id,
+            selection_criterion=selection_criterion,
+        ),
         fontsize=13,
         y=1.02,
     )
@@ -2336,8 +2353,9 @@ def run_analog_cluster_38h_analysis(
     feat_cols: list,
     previously_w_hours: int = 14,
     cluster_labels: tuple[str, ...] = ('F', 'G', 'H'),
+    selection_criterion: str | None = None,
 ) -> dict:
-    """Group 38-h holiday profiles by stable analog-space labels F/G/H."""
+    """Group 38-h holiday profiles by stable analog-space labels."""
     required_selector_cols = {'date', 'holiday_name', 'analog_cluster'}
     missing_selector_cols = required_selector_cols - set(df_holiday_selector_features.columns)
     if missing_selector_cols:
@@ -2359,7 +2377,8 @@ def run_analog_cluster_38h_analysis(
     )
 
     if df_phol_fgh.empty:
-        print('No 38-h profiles were matched to analog clusters F/G/H.')
+        analog_label_text = '/'.join(str(label) for label in analog_cluster_labels) or 'n/a'
+        print(f'No 38-h profiles were matched to analog clusters {analog_label_text}.')
         centroids_fgh = np.empty((0, len(feat_cols)))
     else:
         _display_analog_cluster_38h_days(
@@ -2374,6 +2393,7 @@ def run_analog_cluster_38h_analysis(
             unique_id,
             feat_cols,
             previously_w_hours,
+            selection_criterion=selection_criterion,
         )
 
     print(f'Analog-cluster profiles available: {len(df_phol_fgh)}')
@@ -3001,18 +3021,188 @@ def build_future_holiday_selector_features(
 
 def _resolve_analog_criterion_columns(criterion: str) -> tuple[str, str]:
     """Return selector/prior columns used by the analog-cluster criterion."""
+    criterion_spec = _resolve_analog_criterion_spec(criterion)
+    return criterion_spec.get('selector_col'), criterion_spec.get('prior_col')
+
+
+_ANALOG_CRITERION_ALIASES = {
+    'seasonal_winter_sprint_fall': 'seasonal_winter_spring_fall',
+}
+
+ANALOG_CLUSTER_CRITERIA_CATALOG = {
+    'shape_pearson_CDE_map_FGH': (
+        'Maps the current 38h shape-based event_profile_cluster letters '
+        'C/D/E/... to stable analog labels F/G/H/...'
+    ),
+    'seasonal_winter_sprint_fall': (
+        'Groups holiday dates by year season and maps Winter/Spring/Fall/Summer '
+        'to stable analog labels.'
+    ),
+    'best_matching_weekday': (
+        'Groups holiday dates by best_matching_weekday, the closest weekday-profile '
+        'label assigned to each date.'
+    ),
+}
+
+_SEASONAL_ANALOG_VALUE_ALIASES = {
+    'winter': 'winter',
+    'spring': 'spring',
+    'sprint': 'spring',
+    'fall': 'fall',
+    'autumn': 'fall',
+    'summer': 'summer',
+}
+
+_SHAPE_PEARSON_ANALOG_ORDER = tuple('CDEFGHIJKLMNOPQRSTUVWXYZ')
+_SEASONAL_ANALOG_ORDER = ('winter', 'spring', 'fall', 'summer')
+
+
+def _normalize_analog_criterion_name(criterion: str) -> str:
+    criterion_text = str(criterion).strip()
+    return _ANALOG_CRITERION_ALIASES.get(criterion_text, criterion_text)
+
+
+def _derive_seasonal_analog_criterion_value(row: pd.Series) -> object:
+    season_value = row.get('season', pd.NA)
+    if pd.notna(season_value):
+        season_text = str(season_value).strip().lower()
+        normalized = _SEASONAL_ANALOG_VALUE_ALIASES.get(season_text)
+        if normalized is not None:
+            return normalized
+
+    date_value = pd.to_datetime(row.get('date', pd.NaT), errors='coerce')
+    if pd.notna(date_value):
+        month_value = int(date_value.month)
+        if month_value in (12, 1, 2):
+            return 'winter'
+        if month_value in (3, 4, 5):
+            return 'spring'
+        if month_value in (6, 7, 8):
+            return 'summer'
+        return 'fall'
+
+    return pd.NA
+
+
+def _resolve_analog_criterion_spec(criterion: str) -> dict:
+    normalized_criterion = _normalize_analog_criterion_name(criterion)
     criterion_map = {
-        'event_profile_cluster': ('event_profile_cluster', 'inferred_event_profile_cluster'),
-        'daily_profile_cluster': ('daily_profile_cluster', 'inferred_daily_profile_cluster'),
-        'best_matching_weekday': ('best_matching_weekday', 'inferred_best_matching_weekday'),
-        'daily_profile_archetype': ('daily_profile_archetype', 'inferred_daily_profile_archetype'),
+        'event_profile_cluster': {
+            'selector_col': 'event_profile_cluster',
+            'prior_col': 'inferred_event_profile_cluster',
+        },
+        'daily_profile_cluster': {
+            'selector_col': 'daily_profile_cluster',
+            'prior_col': 'inferred_daily_profile_cluster',
+        },
+        'best_matching_weekday': {
+            'selector_col': 'best_matching_weekday',
+            'prior_col': 'inferred_best_matching_weekday',
+        },
+        'daily_profile_archetype': {
+            'selector_col': 'daily_profile_archetype',
+            'prior_col': 'inferred_daily_profile_archetype',
+        },
+        'shape_pearson_CDE_map_FGH': {
+            'selector_col': 'event_profile_cluster',
+            'prior_col': 'inferred_event_profile_cluster',
+            'ordered_values': _SHAPE_PEARSON_ANALOG_ORDER,
+        },
+        'seasonal_winter_spring_fall': {
+            'selector_col': None,
+            'prior_col': None,
+            'ordered_values': _SEASONAL_ANALOG_ORDER,
+            'value_getter': _derive_seasonal_analog_criterion_value,
+        },
     }
 
     try:
-        return criterion_map[criterion]
+        return criterion_map[normalized_criterion].copy()
     except KeyError as exc:
-        valid = ', '.join(sorted(criterion_map))
+        valid = ', '.join(sorted(set(criterion_map) | set(_ANALOG_CRITERION_ALIASES)))
         raise ValueError(f'Unsupported analog criterion {criterion!r}. Options: {valid}') from exc
+
+
+def _resolve_analog_criterion_values(
+    df_values: pd.DataFrame,
+    criterion: str,
+) -> pd.Series:
+    criterion_spec = _resolve_analog_criterion_spec(criterion)
+    value_getter = criterion_spec.get('value_getter')
+    if value_getter is not None:
+        return df_values.apply(value_getter, axis=1)
+
+    selector_col = criterion_spec.get('selector_col')
+    prior_col = criterion_spec.get('prior_col')
+
+    resolved_values = pd.Series(pd.NA, index=df_values.index, dtype='object')
+    if selector_col is not None and selector_col in df_values.columns:
+        resolved_values = df_values[selector_col].copy()
+    if prior_col is not None and prior_col in df_values.columns:
+        resolved_values = resolved_values.where(resolved_values.notna(), df_values[prior_col])
+    return resolved_values
+
+
+def _order_analog_criterion_frame(
+    df_values: pd.DataFrame,
+    criterion: str,
+) -> pd.DataFrame:
+    ordered_values_df = df_values.copy()
+    if ordered_values_df.empty or 'analog_criterion_value' not in ordered_values_df.columns:
+        return ordered_values_df
+
+    criterion_spec = _resolve_analog_criterion_spec(criterion)
+    ordered_values = tuple(criterion_spec.get('ordered_values') or ())
+    if not ordered_values:
+        return ordered_values_df.sort_values(
+            'analog_criterion_value',
+            key=lambda values: values.astype(str),
+        ).reset_index(drop=True)
+
+    order_map = {value: idx for idx, value in enumerate(ordered_values)}
+    ordered_values_df['_analog_order'] = ordered_values_df['analog_criterion_value'].map(order_map)
+
+    missing_mask = ordered_values_df['_analog_order'].isna()
+    if missing_mask.any():
+        extra_values = (
+            ordered_values_df.loc[missing_mask, 'analog_criterion_value']
+            .astype(str)
+            .sort_values()
+            .unique()
+            .tolist()
+        )
+        extra_order = {value: len(order_map) + idx for idx, value in enumerate(extra_values)}
+        ordered_values_df.loc[missing_mask, '_analog_order'] = (
+            ordered_values_df.loc[missing_mask, 'analog_criterion_value']
+            .astype(str)
+            .map(extra_order)
+        )
+
+    return (
+        ordered_values_df
+        .sort_values('_analog_order')
+        .drop(columns=['_analog_order'])
+        .reset_index(drop=True)
+    )
+
+
+def _build_analog_cluster_catalog(
+    df_values: pd.DataFrame,
+    criterion: str,
+    cluster_labels: tuple[str, ...],
+) -> pd.DataFrame:
+    catalog = _order_analog_criterion_frame(df_values, criterion)
+    catalog = catalog.drop(columns=['analog_cluster', 'analog_criterion'], errors='ignore').copy()
+
+    label_pool = list(cluster_labels)
+    if len(catalog) > len(label_pool):
+        label_pool.extend(_ANALOG_CLUSTER_LABELS[len(label_pool):len(catalog)])
+    if len(catalog) > len(label_pool):
+        raise ValueError('Not enough analog-cluster labels available for the resolved criterion groups.')
+
+    catalog.insert(0, 'analog_cluster', label_pool[: len(catalog)])
+    catalog.insert(1, 'analog_criterion', criterion)
+    return catalog
 
 
 def assign_holiday_selector_analog_clusters(
@@ -3063,22 +3253,28 @@ def assign_holiday_selector_analog_clusters(
     if missing_priors:
         raise ValueError(f'Missing prior columns: {sorted(missing_priors)}')
 
+    criterion_spec = _resolve_analog_criterion_spec(criterion)
+    selector_col = criterion_spec.get('selector_col')
+    prior_col = criterion_spec.get('prior_col')
+    if prior_col is not None and prior_col not in df_priors.columns:
+        raise ValueError(
+            f'Missing prior criterion column {prior_col!r} for analog criterion {criterion!r}.'
+        )
+
     df_clusters = df_selector.copy()
     for col_name in [prior_col, 'analog_criterion', 'analog_criterion_value', 'analog_cluster']:
-        if col_name in df_clusters.columns:
+        if col_name is not None and col_name in df_clusters.columns:
             df_clusters = df_clusters.drop(columns=[col_name])
 
-    merge_cols = list(resolved_group_cols) + [prior_col]
-    df_clusters = df_clusters.merge(
-        df_priors[merge_cols].drop_duplicates(subset=list(resolved_group_cols)),
-        on=list(resolved_group_cols),
-        how='left',
-    )
+    if prior_col is not None:
+        merge_cols = list(resolved_group_cols) + [prior_col]
+        df_clusters = df_clusters.merge(
+            df_priors[merge_cols].drop_duplicates(subset=list(resolved_group_cols)),
+            on=list(resolved_group_cols),
+            how='left',
+        )
 
-    resolved_values = df_clusters[selector_col].where(
-        df_clusters[selector_col].notna(),
-        df_clusters[prior_col],
-    )
+    resolved_values = _resolve_analog_criterion_values(df_clusters, criterion)
     df_clusters['analog_criterion'] = criterion
     df_clusters['analog_criterion_value'] = resolved_values
 
@@ -3090,31 +3286,17 @@ def assign_holiday_selector_analog_clusters(
             n_anchor_holidays=('anchor_holiday_name', 'nunique'),
         )
         .reset_index()
-        .sort_values('analog_criterion_value')
-        .reset_index(drop=True)
     )
 
-    label_pool = list(cluster_labels)
-    if len(counts) > len(label_pool):
-        label_pool.extend(_ANALOG_CLUSTER_LABELS[len(label_pool):len(counts)])
-    if len(counts) > len(label_pool):
-        raise ValueError('Not enough analog-cluster labels available for the resolved criterion groups.')
-
-    counts['analog_cluster'] = label_pool[: len(counts)]
-    analog_map = dict(zip(counts['analog_criterion_value'], counts['analog_cluster']))
+    catalog = _build_analog_cluster_catalog(counts, criterion, cluster_labels)
+    analog_map = dict(zip(catalog['analog_criterion_value'], catalog['analog_cluster']))
     df_clusters['analog_cluster'] = df_clusters['analog_criterion_value'].map(analog_map)
-
-    catalog = counts[[
-        'analog_cluster',
-        'analog_criterion_value',
-        'n_rows',
-        'n_anchor_holidays',
-    ]].copy()
-    catalog.insert(1, 'analog_criterion', criterion)
 
     return {
         'df_selector_clusters': df_clusters,
         'analog_cluster_catalog': catalog,
+        'analog_criterion_selector_col': selector_col,
+        'analog_criterion_prior_col': prior_col,
     }
 
 
@@ -3208,7 +3390,12 @@ def identify_future_holiday_analog_cluster(
     if missing:
         raise ValueError(f'Candidate is missing required analog-key fields: {missing}')
 
-    selector_col, prior_col = _resolve_analog_criterion_columns(criterion)
+    criterion_spec = _resolve_analog_criterion_spec(criterion)
+    prior_col = criterion_spec.get('prior_col')
+    if prior_col is not None and prior_col not in df_priors.columns:
+        raise ValueError(
+            f'Missing prior criterion column {prior_col!r} for analog criterion {criterion!r}.'
+        )
 
     prior_match = df_priors.copy()
     for col_name in resolved_group_cols:
@@ -3226,26 +3413,28 @@ def identify_future_holiday_analog_cluster(
             candidate_series[col_name] = prior_row[col_name]
 
     candidate_series['analog_criterion'] = criterion
-    candidate_series['analog_criterion_value'] = candidate_series.get(selector_col, pd.NA)
-    if pd.isna(candidate_series['analog_criterion_value']):
-        candidate_series['analog_criterion_value'] = candidate_series.get(prior_col, pd.NA)
+    candidate_frame = pd.DataFrame([candidate_series])
+    candidate_series['analog_criterion_value'] = _resolve_analog_criterion_values(
+        candidate_frame,
+        criterion,
+    ).iloc[0]
 
     if analog_cluster_catalog is None:
-        resolved_values = (
-            df_priors[prior_col]
-            .dropna()
-            .drop_duplicates()
-            .sort_values()
-            .tolist()
-        )
-        label_pool = list(cluster_labels)
-        if len(resolved_values) > len(label_pool):
-            label_pool.extend(_ANALOG_CLUSTER_LABELS[len(label_pool):len(resolved_values)])
-        analog_cluster_catalog = pd.DataFrame({
-            'analog_cluster': label_pool[: len(resolved_values)],
-            'analog_criterion': criterion,
-            'analog_criterion_value': resolved_values,
-        })
+        if prior_col is not None and prior_col in df_priors.columns:
+            resolved_values = df_priors[prior_col].dropna().drop_duplicates().tolist()
+        else:
+            resolved_values = list(criterion_spec.get('ordered_values') or ())
+        if not resolved_values and pd.notna(candidate_series['analog_criterion_value']):
+            resolved_values = [candidate_series['analog_criterion_value']]
+        analog_cluster_catalog = _build_analog_cluster_catalog(
+            pd.DataFrame({'analog_criterion_value': resolved_values}),
+            criterion,
+            cluster_labels,
+        )[[
+            'analog_cluster',
+            'analog_criterion',
+            'analog_criterion_value',
+        ]]
 
     analog_map = dict(zip(
         analog_cluster_catalog['analog_criterion_value'],

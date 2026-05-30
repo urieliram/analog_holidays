@@ -163,6 +163,21 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             "31/12/24",
         )
 
+    def test_build_analog_cluster_38h_suptitle_includes_selection_criterion(self) -> None:
+        from analog_holidays.shared.identify_holidays import _build_analog_cluster_38h_suptitle
+
+        suptitle = _build_analog_cluster_38h_suptitle(
+            ["F", "G", "H"],
+            "SEN_demand_SIN",
+            selection_criterion="best_matching_weekday",
+        )
+
+        self.assertEqual(
+            suptitle,
+            "38-h event profiles by analog cluster (F/G/H)  |  SEN_demand_SIN\n"
+            "Selection criterion: best_matching_weekday",
+        )
+
     def test_fit_hourly_bias_factor_model_uses_available_analogs_when_fewer_than_requested(self) -> None:
         from analog_holidays.analog.analog_holidays import fit_hourly_bias_factor_model
 
@@ -336,6 +351,126 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             ].tolist(),
             ["F"],
         )
+
+    def test_shape_pearson_analog_criterion_alias_maps_cde_to_fgh(self) -> None:
+        from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters
+
+        df_selector = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN", "SEN_demand_SIN", "SEN_demand_SIN"],
+                "holiday_name": ["Holiday D", "Holiday C", "Holiday E"],
+                "anchor_holiday_name": ["Holiday D", "Holiday C", "Holiday E"],
+                "date": [
+                    pd.Timestamp("2024-04-18"),
+                    pd.Timestamp("2024-05-01"),
+                    pd.Timestamp("2024-11-18"),
+                ],
+                "holiday_day_type": ["H2", "H2", "H2"],
+                "event_profile_cluster": ["D", "C", "E"],
+            }
+        )
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN", "SEN_demand_SIN", "SEN_demand_SIN"],
+                "anchor_holiday_name": ["Holiday D", "Holiday C", "Holiday E"],
+                "holiday_day_type": ["H2", "H2", "H2"],
+                "inferred_event_profile_cluster": ["D", "C", "E"],
+            }
+        )
+
+        cluster_results = assign_holiday_selector_analog_clusters(
+            df_selector=df_selector,
+            df_priors=df_priors,
+            criterion="shape_pearson_CDE_map_FGH",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        df_selector_clusters = cluster_results["df_selector_clusters"].sort_values("date").reset_index(drop=True)
+        df_catalog = cluster_results["analog_cluster_catalog"]
+
+        self.assertEqual(df_selector_clusters["analog_cluster"].tolist(), ["G", "F", "H"])
+        self.assertEqual(df_catalog["analog_criterion_value"].tolist(), ["C", "D", "E"])
+        self.assertEqual(df_catalog["analog_cluster"].tolist(), ["F", "G", "H"])
+
+    def test_analog_cluster_criteria_catalog_lists_public_criteria(self) -> None:
+        from analog_holidays.shared.identify_holidays import ANALOG_CLUSTER_CRITERIA_CATALOG
+
+        self.assertEqual(
+            set(ANALOG_CLUSTER_CRITERIA_CATALOG),
+            {
+                "shape_pearson_CDE_map_FGH",
+                "seasonal_winter_sprint_fall",
+                "best_matching_weekday",
+            },
+        )
+
+    def test_best_matching_weekday_criterion_assigns_stable_labels(self) -> None:
+        from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters
+
+        df_selector = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN", "SEN_demand_SIN", "SEN_demand_SIN"],
+                "holiday_name": ["Holiday Friday", "Holiday Saturday", "Holiday Sunday"],
+                "anchor_holiday_name": ["Holiday Friday", "Holiday Saturday", "Holiday Sunday"],
+                "date": [
+                    pd.Timestamp("2024-04-18"),
+                    pd.Timestamp("2024-05-01"),
+                    pd.Timestamp("2024-11-18"),
+                ],
+                "holiday_day_type": ["H2", "H2", "H2"],
+                "best_matching_weekday": ["Friday", "Saturday", "Sunday"],
+            }
+        )
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN", "SEN_demand_SIN", "SEN_demand_SIN"],
+                "anchor_holiday_name": ["Holiday Friday", "Holiday Saturday", "Holiday Sunday"],
+                "holiday_day_type": ["H2", "H2", "H2"],
+                "inferred_best_matching_weekday": ["Friday", "Saturday", "Sunday"],
+            }
+        )
+
+        cluster_results = assign_holiday_selector_analog_clusters(
+            df_selector=df_selector,
+            df_priors=df_priors,
+            criterion="best_matching_weekday",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        df_selector_clusters = cluster_results["df_selector_clusters"].sort_values("date").reset_index(drop=True)
+        df_catalog = cluster_results["analog_cluster_catalog"]
+
+        self.assertEqual(df_selector_clusters["analog_cluster"].tolist(), ["F", "G", "H"])
+        self.assertEqual(df_catalog["analog_criterion_value"].tolist(), ["Friday", "Saturday", "Sunday"])
+        self.assertEqual(df_catalog["analog_cluster"].tolist(), ["F", "G", "H"])
+
+    def test_identify_future_holiday_analog_cluster_supports_seasonal_criterion(self) -> None:
+        from analog_holidays.shared.identify_holidays import identify_future_holiday_analog_cluster
+
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"],
+                "anchor_holiday_name": ["Labor Day"],
+                "holiday_day_type": ["H2"],
+                "history_rows": [4],
+            }
+        )
+
+        candidate_info = identify_future_holiday_analog_cluster(
+            candidate={
+                "unique_id": "SEN_demand_SIN",
+                "holiday_name": "Labor Day",
+                "anchor_holiday_name": "Labor Day",
+                "holiday_day_type": "H2",
+                "date": pd.Timestamp("2025-05-01"),
+            },
+            df_priors=df_priors,
+            criterion="seasonal_winter_sprint_fall",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        self.assertEqual(candidate_info["analog_criterion_value"], "spring")
+        self.assertEqual(candidate_info["analog_cluster"], "G")
 
     def test_extract_hour_window_spans_preholiday_and_holiday(self) -> None:
         from analog_holidays.analog.analog_holidays import _extract_hour_window
