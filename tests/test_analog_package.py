@@ -1408,7 +1408,6 @@ class AnalogPackageSmokeTests(unittest.TestCase):
         def recording_suggest_categorical(self, name, choices, *args, **kwargs):
             if name == "typereg":
                 typereg_choices_seen.append(tuple(choices))
-                return "PCR"
             return original_suggest_categorical(self, name, choices, *args, **kwargs)
 
         with patch.object(analog_holidays_module, "load_audit_source", return_value=df_source), patch.object(

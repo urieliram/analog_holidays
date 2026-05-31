@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import importlib.util
 import json
 import math
 import shutil
@@ -989,8 +990,6 @@ def tune_analog_holidays_optuna(
     recent_weekend_analogs: int = 0,
 ) -> AnalogHolidayOptunaResult:
     """Tune AnalogSpecialDays hyperparameters on historical special dates."""
-    import importlib.util
-
     import optuna
 
     train_end_ts = pd.Timestamp(train_end)
