@@ -3034,6 +3034,10 @@ ANALOG_CLUSTER_CRITERIA_CATALOG = {
         'Maps the current 38h shape-based event_profile_cluster letters '
         'C/D/E/... to stable analog labels F/G/H/...'
     ),
+    'seasonal_heat_cold': (
+        'Groups holiday dates into heat vs cold seasons, mapping '
+        'Spring/Summer to heat and Autumn/Winter to cold.'
+    ),
     'seasonal_winter_sprint_fall': (
         'Groups holiday dates by year season and maps Winter/Spring/Fall/Summer '
         'to stable analog labels.'
@@ -3053,8 +3057,16 @@ _SEASONAL_ANALOG_VALUE_ALIASES = {
     'summer': 'summer',
 }
 
+_HEAT_COLD_SEASON_MAP = {
+    'spring': 'heat',
+    'summer': 'heat',
+    'fall': 'cold',
+    'winter': 'cold',
+}
+
 _SHAPE_PEARSON_ANALOG_ORDER = tuple('CDEFGHIJKLMNOPQRSTUVWXYZ')
 _SEASONAL_ANALOG_ORDER = ('winter', 'spring', 'fall', 'summer')
+_SEASONAL_HEAT_COLD_ORDER = ('heat', 'cold')
 
 
 def _normalize_analog_criterion_name(criterion: str) -> str:
@@ -3084,6 +3096,13 @@ def _derive_seasonal_analog_criterion_value(row: pd.Series) -> object:
     return pd.NA
 
 
+def _derive_seasonal_heat_cold_analog_criterion_value(row: pd.Series) -> object:
+    seasonal_value = _derive_seasonal_analog_criterion_value(row)
+    if pd.isna(seasonal_value):
+        return pd.NA
+    return _HEAT_COLD_SEASON_MAP.get(str(seasonal_value).strip().lower(), pd.NA)
+
+
 def _resolve_analog_criterion_spec(criterion: str) -> dict:
     normalized_criterion = _normalize_analog_criterion_name(criterion)
     criterion_map = {
@@ -3107,6 +3126,12 @@ def _resolve_analog_criterion_spec(criterion: str) -> dict:
             'selector_col': 'event_profile_cluster',
             'prior_col': 'inferred_event_profile_cluster',
             'ordered_values': _SHAPE_PEARSON_ANALOG_ORDER,
+        },
+        'seasonal_heat_cold': {
+            'selector_col': None,
+            'prior_col': None,
+            'ordered_values': _SEASONAL_HEAT_COLD_ORDER,
+            'value_getter': _derive_seasonal_heat_cold_analog_criterion_value,
         },
         'seasonal_winter_spring_fall': {
             'selector_col': None,

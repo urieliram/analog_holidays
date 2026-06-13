@@ -114,6 +114,35 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             self.assertEqual(cluster_lookup[pd.Timestamp("2020-02-03")], "F")
             self.assertEqual(cluster_lookup[pd.Timestamp("2020-03-16")], "G")
 
+    def test_resolve_selector_cluster_filter_label_prefers_exported_criterion(self) -> None:
+        from analog_holidays.analog.analog_holidays import _resolve_selector_cluster_filter_label
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            selector_path = tmp_path / "holiday_selector_features.csv"
+            selector_path.write_text(
+                "unique_id,date,analog_cluster,analog_cluster_criterion\n"
+                "SEN_demand_SIN,2020-02-03,F,seasonal_heat_cold\n"
+                "SEN_demand_SIN,2020-03-16,G,seasonal_heat_cold\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                _resolve_selector_cluster_filter_label(
+                    selector_path,
+                    match_target_cluster=True,
+                    unique_id="SEN_demand_SIN",
+                ),
+                "seasonal_heat_cold",
+            )
+            self.assertFalse(
+                _resolve_selector_cluster_filter_label(
+                    selector_path,
+                    match_target_cluster=False,
+                    unique_id="SEN_demand_SIN",
+                )
+            )
+
     def test_filter_dates_with_selector_cluster_skips_missing_dates(self) -> None:
         from analog_holidays.analog.P_analog_pre_holidays import _filter_dates_with_selector_cluster
 
@@ -224,8 +253,92 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             "k=7/19 | scale_method=standard |\n"
             "typedist=pearson |\n"
             "typereg=PCR | n_components=3\n"
-            "filter_by_cluster=True",
+            "cluster=True",
         )
+
+    def test_build_panel_config_row_prefers_cluster_filter_label(self) -> None:
+        from analog_holidays.analog.analog_holidays import _build_panel_config_row
+
+        row = pd.Series(
+            {
+                "k": 7,
+                "optuna_k_max": 19,
+                "scale_method": "standard",
+                "typedist": "pearson",
+                "typereg": "PCR",
+                "n_components": 3,
+                "filter_by_cluster": True,
+                "cluster_filter_label": "seasonal_heat_cold",
+            }
+        )
+
+        result = _build_panel_config_row(row)
+
+        self.assertEqual(
+            result,
+            "k=7/19 | scale_method=standard |\n"
+            "typedist=pearson |\n"
+            "typereg=PCR | n_components=3\n"
+            "cluster=seasonal_heat_cold",
+        )
+
+    def test_plot_analog_pair_sequences_adds_recovery_day_actuals(self) -> None:
+        import matplotlib.pyplot as plt
+        from analog_holidays.analog.analog_holidays import AnalogHolidayRun, plot_analog_pair_sequences
+
+        run = AnalogHolidayRun(
+            unique_id="SEN_demand_SIN",
+            target_date=pd.Timestamp("2025-05-01"),
+            forecast_start=pd.Timestamp("2025-04-30 10:00:00"),
+            forecast_end=pd.Timestamp("2025-05-02 00:00:00"),
+            forecast_start_offset_hours=14,
+            target_exists=True,
+            target_has_complete_profile=True,
+            typedist="pearson",
+            typereg="PCR",
+            scale_method=None,
+            season_length=38,
+            k=1,
+            n_components=3,
+            regressor_params={},
+            levels=[80, 95],
+            train_df=pd.DataFrame({"date": pd.date_range("2025-01-01", periods=5, freq="D")}),
+            target_row=None,
+            special_day_daily_mask=pd.Series([True] * 5),
+            hourly_series=np.arange(200, dtype=np.float64),
+            special_day_hourly_mask=np.ones(200, dtype=np.float64),
+            previous_day_profile=np.arange(38, dtype=np.float64),
+            forecast_profile=np.arange(38, dtype=np.float64) + 100.0,
+            interval_low={80: np.zeros(38, dtype=np.float64), 95: np.zeros(38, dtype=np.float64)},
+            interval_high={80: np.ones(38, dtype=np.float64), 95: np.ones(38, dtype=np.float64)},
+            actual_profile=np.arange(38, dtype=np.float64) + 200.0,
+            positions=[10],
+            neighbors2=np.array([np.arange(38, dtype=np.float64) + 50.0]),
+            selected_days_df=pd.DataFrame({"special_date": [pd.Timestamp("2025-01-10")]}),
+            fail=False,
+            t_sel=0.1,
+            t_reg=0.2,
+            special_labels=("holiday",),
+            include_declared_holidays=False,
+            include_outliers=False,
+            min_special_points=24,
+            min_event_gap=24,
+            max_events=None,
+            recent_weekend_analogs=0,
+            recent_weekend_like=None,
+            recent_weekend_dates=[],
+            label_column="label",
+            post_holiday_actual_profile=np.arange(24, dtype=np.float64) + 300.0,
+        )
+
+        fig, ax = plot_analog_pair_sequences(run)
+
+        labels = {line.get_label() for line in ax.get_lines()}
+        self.assertIn("Historical recovery +24h", labels)
+        self.assertIn("Actual recovery +24h", labels)
+        self.assertEqual(ax.get_xlim(), (-52.0, 47.0))
+
+        plt.close(fig)
 
     def test_pre_holiday_helpers_ignore_cluster_columns(self) -> None:
         from analog_holidays.analog.P_analog_pre_holidays import list_unique_ids
@@ -399,10 +512,51 @@ class AnalogPackageSmokeTests(unittest.TestCase):
             set(ANALOG_CLUSTER_CRITERIA_CATALOG),
             {
                 "shape_pearson_CDE_map_FGH",
+                "seasonal_heat_cold",
                 "seasonal_winter_sprint_fall",
                 "best_matching_weekday",
             },
         )
+
+    def test_seasonal_heat_cold_criterion_assigns_binary_labels(self) -> None:
+        from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters
+
+        df_selector = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN", "SEN_demand_SIN", "SEN_demand_SIN"],
+                "holiday_name": ["Spring Holiday", "Summer Holiday", "Winter Holiday"],
+                "anchor_holiday_name": ["Spring Holiday", "Summer Holiday", "Winter Holiday"],
+                "date": [
+                    pd.Timestamp("2024-04-18"),
+                    pd.Timestamp("2024-08-15"),
+                    pd.Timestamp("2024-12-25"),
+                ],
+                "holiday_day_type": ["H2", "H2", "H2"],
+                "season": ["Spring", "Summer", "Winter"],
+            }
+        )
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN", "SEN_demand_SIN", "SEN_demand_SIN"],
+                "anchor_holiday_name": ["Spring Holiday", "Summer Holiday", "Winter Holiday"],
+                "holiday_day_type": ["H2", "H2", "H2"],
+            }
+        )
+
+        cluster_results = assign_holiday_selector_analog_clusters(
+            df_selector=df_selector,
+            df_priors=df_priors,
+            criterion="seasonal_heat_cold",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        df_selector_clusters = cluster_results["df_selector_clusters"].sort_values("date").reset_index(drop=True)
+        df_catalog = cluster_results["analog_cluster_catalog"]
+
+        self.assertEqual(df_selector_clusters["analog_criterion_value"].tolist(), ["heat", "heat", "cold"])
+        self.assertEqual(df_selector_clusters["analog_cluster"].tolist(), ["F", "F", "G"])
+        self.assertEqual(df_catalog["analog_criterion_value"].tolist(), ["heat", "cold"])
+        self.assertEqual(df_catalog["analog_cluster"].tolist(), ["F", "G"])
 
     def test_best_matching_weekday_criterion_assigns_stable_labels(self) -> None:
         from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters
@@ -471,6 +625,34 @@ class AnalogPackageSmokeTests(unittest.TestCase):
 
         self.assertEqual(candidate_info["analog_criterion_value"], "spring")
         self.assertEqual(candidate_info["analog_cluster"], "G")
+
+    def test_identify_future_holiday_analog_cluster_supports_heat_cold_criterion(self) -> None:
+        from analog_holidays.shared.identify_holidays import identify_future_holiday_analog_cluster
+
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"],
+                "anchor_holiday_name": ["Labor Day"],
+                "holiday_day_type": ["H2"],
+                "history_rows": [4],
+            }
+        )
+
+        candidate_info = identify_future_holiday_analog_cluster(
+            candidate={
+                "unique_id": "SEN_demand_SIN",
+                "holiday_name": "Labor Day",
+                "anchor_holiday_name": "Labor Day",
+                "holiday_day_type": "H2",
+                "date": pd.Timestamp("2025-05-01"),
+            },
+            df_priors=df_priors,
+            criterion="seasonal_heat_cold",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        self.assertEqual(candidate_info["analog_criterion_value"], "heat")
+        self.assertEqual(candidate_info["analog_cluster"], "F")
 
     def test_extract_hour_window_spans_preholiday_and_holiday(self) -> None:
         from analog_holidays.analog.analog_holidays import _extract_hour_window
@@ -1444,6 +1626,79 @@ class AnalogPackageSmokeTests(unittest.TestCase):
 
         self.assertTrue(typereg_choices_seen)
         self.assertEqual(typereg_choices_seen[0], ("PCR", "PLS"))
+
+    def test_save_experiment_run_registers_timestamped_folder(self) -> None:
+        import types
+        from datetime import datetime
+        from analog_holidays.shared.experiment_logging import save_experiment_run
+
+        def _batch(unique_id: str, mape: float) -> object:
+            results_df = pd.DataFrame(
+                {
+                    "target_date": ["2026-05-01", "2026-09-16"],
+                    "holiday_label": ["Labor Day", "Independence Day"],
+                    "analog_cluster": ["F", "G"],
+                    "k": [100, 100],
+                    "selected_analogs": [8, 5],
+                    "typereg": ["PCR", "PCR"],
+                    "mae_24h": [120.0, 90.0],
+                    "mape_24h_pct": [mape, mape + 1.0],
+                    "fail": [False, False],
+                    "error": [None, None],
+                }
+            )
+            return types.SimpleNamespace(results_df=results_df)
+
+        config = {
+            "window": {"season_length": 38, "forecast_start_offset_hours": 14},
+            "cluster": {"use_cluster": True, "analog_cluster_criterion": "shape_pearson_CDE_map_FGH"},
+            "k_np": np.int64(100),  # exercises numpy serialization
+        }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            experiment_dir = save_experiment_run(
+                config=config,
+                batch_results={
+                    "SEN_demand_SIN": _batch("SEN_demand_SIN", 4.2),
+                    "SEN_demand_PEN": _batch("SEN_demand_PEN", 6.7),
+                },
+                base_dir=tmp_dir,
+                slug="unit test",
+                timestamp=datetime(2026, 6, 13, 9, 6),
+                verbose=False,
+            )
+
+            self.assertEqual(experiment_dir.name, "experiment_2026_06_13_09_06_unit_test")
+            for fname in ("manifest.yaml", "metrics.csv", "summary.csv", "notes.md"):
+                self.assertTrue((experiment_dir / fname).exists(), fname)
+
+            metrics = pd.read_csv(experiment_dir / "metrics.csv")
+            self.assertEqual(list(metrics.columns[:2]), ["experiment_id", "unique_id"])
+            self.assertEqual(len(metrics), 4)
+            self.assertEqual(
+                set(metrics["unique_id"]), {"SEN_demand_SIN", "SEN_demand_PEN"}
+            )
+            self.assertTrue((metrics["experiment_id"] == experiment_dir.name).all())
+
+            summary = pd.read_csv(experiment_dir / "summary.csv")
+            self.assertIn("ALL", set(summary["unique_id"]))
+            self.assertIn("mape_24h_pct_median", summary.columns)
+
+            manifest_text = (experiment_dir / "manifest.yaml").read_text(encoding="utf-8")
+            self.assertIn("shape_pearson_CDE_map_FGH", manifest_text)
+            self.assertIn(experiment_dir.name, manifest_text)
+
+            # Reruns at the same minute must never overwrite a prior experiment folder.
+            experiment_dir_2 = save_experiment_run(
+                config=config,
+                batch_results={"SEN_demand_SIN": _batch("SEN_demand_SIN", 4.2)},
+                base_dir=tmp_dir,
+                slug="unit test",
+                timestamp=datetime(2026, 6, 13, 9, 6),
+                verbose=False,
+            )
+            self.assertNotEqual(experiment_dir, experiment_dir_2)
+            self.assertTrue(experiment_dir_2.name.startswith(experiment_dir.name))
 
 
 if __name__ == "__main__":

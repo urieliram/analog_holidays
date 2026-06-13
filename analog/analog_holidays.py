@@ -39,6 +39,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE_PATH = PACKAGE_ROOT / "audit" / "data"
 DEFAULT_LEVELS = [80, 95]
 DEFAULT_SELECTOR_FEATURES_PATH = PACKAGE_ROOT / "holidays" / "holiday_selector_features.csv"
+POST_HOLIDAY_RECOVERY_HOURS = 24
+SELECTOR_CLUSTER_CRITERION_COLUMN = "analog_cluster_criterion"
 
 
 @dataclass
@@ -84,6 +86,7 @@ class AnalogHolidayRun:
     recent_weekend_like: Optional[str]
     recent_weekend_dates: list[pd.Timestamp]
     label_column: str
+    post_holiday_actual_profile: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -433,6 +436,55 @@ def _resolve_selector_cluster_lookup(
         cluster_column=cluster_column,
         unique_id=unique_id,
     )
+
+
+def _resolve_selector_cluster_filter_label(
+    selector_features_path: Path | str | None,
+    match_target_cluster: bool,
+    unique_id: str | None = None,
+    criterion_column: str = SELECTOR_CLUSTER_CRITERION_COLUMN,
+) -> object:
+    if not match_target_cluster:
+        return False
+
+    resolved_path = (
+        DEFAULT_SELECTOR_FEATURES_PATH
+        if selector_features_path is None else Path(selector_features_path)
+    )
+    selector_df = pd.read_csv(resolved_path, parse_dates=["date"])
+    if "unique_id" in selector_df.columns:
+        available_unique_ids = pd.Series(selector_df["unique_id"]).dropna().astype(str).unique().tolist()
+        if unique_id is not None:
+            selector_df = selector_df[selector_df["unique_id"].astype(str) == str(unique_id)].copy()
+            if selector_df.empty:
+                raise ValueError(
+                    f"Selector CSV {resolved_path} has no rows for unique_id={unique_id!r}."
+                )
+        elif len(available_unique_ids) > 1:
+            preview = ", ".join(sorted(available_unique_ids)[:5])
+            raise ValueError(
+                "Selector CSV contains multiple unique_id values. "
+                f"Pass unique_id to select one series: {preview}"
+            )
+
+    if criterion_column not in selector_df.columns:
+        return True
+
+    criterion_values = (
+        pd.Series(selector_df[criterion_column])
+        .dropna()
+        .astype(str)
+        .map(str.strip)
+    )
+    criterion_values = [value for value in criterion_values.unique().tolist() if value]
+    if not criterion_values:
+        return True
+    if len(criterion_values) > 1:
+        raise ValueError(
+            "Selector CSV contains multiple analog cluster criteria for the same series: "
+            f"{criterion_values}"
+        )
+    return criterion_values[0]
 
 
 def _normalize_recent_weekend_analogs(recent_weekend_analogs: int) -> int:
@@ -910,6 +962,11 @@ def run_analog_holidays(
         window_start=forecast_start,
         length_hours=season_length,
     )
+    post_holiday_actual_profile = _extract_hour_window(
+        df_region,
+        window_start=target_ts + pd.Timedelta(hours=24),
+        length_hours=POST_HOLIDAY_RECOVERY_HOURS,
+    )
     target_has_complete_profile = actual_profile is not None
 
     return AnalogHolidayRun(
@@ -954,6 +1011,7 @@ def run_analog_holidays(
         recent_weekend_like=recent_weekend_like,
         recent_weekend_dates=recent_weekend_dates,
         label_column=label_column,
+        post_holiday_actual_profile=post_holiday_actual_profile,
     )
 
 
@@ -1338,6 +1396,11 @@ def run_analog_holidays_batch(
         match_target_cluster=match_target_cluster,
         unique_id=unique_id,
     )
+    cluster_filter_label = _resolve_selector_cluster_filter_label(
+        selector_features_path=selector_features_path,
+        match_target_cluster=match_target_cluster,
+        unique_id=unique_id,
+    )
     selector_weekend_lookup = _resolve_selector_weekend_like_lookup(
         selector_features_path=selector_features_path,
         recent_weekend_analogs=recent_weekend_analogs,
@@ -1394,6 +1457,10 @@ def run_analog_holidays_batch(
                 {
                     "target_date": target_date,
                     "holiday_label": holiday_label,
+                    "analog_cluster": selector_cluster_lookup.get(pd.Timestamp(target_date).normalize(), pd.NA)
+                    if selector_cluster_lookup is not None else pd.NA,
+                    "cluster_filter_label": cluster_filter_label,
+                    "filter_by_cluster": bool(match_target_cluster),
                     "forecast_start": run.forecast_start,
                     "forecast_end": run.forecast_end,
                     "forecast_start_offset_hours": run.forecast_start_offset_hours,
@@ -1421,6 +1488,10 @@ def run_analog_holidays_batch(
                 {
                     "target_date": target_date,
                     "holiday_label": holiday_label,
+                    "analog_cluster": selector_cluster_lookup.get(pd.Timestamp(target_date).normalize(), pd.NA)
+                    if selector_cluster_lookup is not None else pd.NA,
+                    "cluster_filter_label": cluster_filter_label,
+                    "filter_by_cluster": bool(match_target_cluster),
                     "forecast_start": pd.NaT,
                     "forecast_end": pd.NaT,
                     "forecast_start_offset_hours": int(forecast_start_offset_hours),
@@ -1671,8 +1742,11 @@ def _relative_hour_axis(run: AnalogHolidayRun) -> np.ndarray:
     return np.arange(run.season_length) - int(run.forecast_start_offset_hours)
 
 
-def _pair_relative_hour_axis(run: AnalogHolidayRun) -> np.ndarray:
-    horizon = run.season_length * 2
+def _pair_relative_hour_axis(
+    run: AnalogHolidayRun,
+    extra_hours: int = 0,
+) -> np.ndarray:
+    horizon = run.season_length * 2 + int(extra_hours)
     return np.arange(horizon) - (run.season_length + int(run.forecast_start_offset_hours))
 
 
@@ -1714,6 +1788,13 @@ def _format_panel_config_value(value: object, default: str = "n/a") -> str:
     return str(value)
 
 
+def _resolve_panel_cluster_filter_value(row: pd.Series) -> object:
+    cluster_filter_label = row.get("cluster_filter_label", pd.NA)
+    if pd.notna(cluster_filter_label):
+        return cluster_filter_label
+    return row.get("filter_by_cluster", row.get("match_target_cluster", pd.NA))
+
+
 def _build_panel_config_row(row: pd.Series) -> str:
     k_value = row.get("k", np.nan)
     total_available = row.get("optuna_k_max", np.nan)
@@ -1731,14 +1812,14 @@ def _build_panel_config_row(row: pd.Series) -> str:
     typedist = _format_panel_config_value(row.get("typedist", pd.NA))
     typereg = _format_panel_config_value(row.get("typereg", pd.NA))
     n_components = _format_panel_config_value(row.get("n_components", pd.NA))
-    filter_by_cluster = row.get("filter_by_cluster", row.get("match_target_cluster", pd.NA))
-    filter_by_cluster_text = _format_panel_config_value(filter_by_cluster)
+    cluster_filter = _resolve_panel_cluster_filter_value(row)
+    cluster_filter_text = _format_panel_config_value(cluster_filter)
 
     return (
         f"{k_text} | scale_method={scale_method} |\n"
         f"typedist={typedist} |\n"
         f"typereg={typereg} | n_components={n_components}\n"
-        f"filter_by_cluster={filter_by_cluster_text}"
+        f"cluster={cluster_filter_text}"
     )
 
 
@@ -1977,7 +2058,10 @@ def plot_batch_inference_grid(
         metric_rows = _build_panel_metric_rows(row)
 
         label_text = holiday_label or "unlabeled"
-        cluster_text = f"cluster={cluster_value}" if pd.notna(cluster_value) else "cluster=n/a"
+        cluster_text = (
+            f"analog_cluster={cluster_value}"
+            if pd.notna(cluster_value) else "analog_cluster=n/a"
+        )
         ax.set_title(
             f"{target_date} | {label_text} | {cluster_text}\n{config_row}\n" + "\n".join(metric_rows),
             fontsize=12,
@@ -2025,6 +2109,7 @@ def plot_batch_pair_sequences_grid(
     figsize_per_panel: tuple[float, float] = (5.5, 5.0),
     title: Optional[str] = None,
     adjusted_forecasts_by_date: Optional[Dict[str, np.ndarray]] = None,
+    post_holiday_actuals_by_date: Optional[Dict[str, np.ndarray]] = None,
 ):
     """Grid of X/X2 and Y/Y2 pair-sequence plots, one panel per forecasted date."""
     if not batch_result.target_items:
@@ -2062,15 +2147,18 @@ def plot_batch_pair_sequences_grid(
                 f"k={getattr(run, 'k', 'n/a')}/n/a | scale_method={getattr(run, 'scale_method', None) or 'None'} |\n"
                 f"typedist={getattr(run, 'typedist', 'n/a')} |\n"
                 f"typereg={getattr(run, 'typereg', 'n/a')} | n_components={getattr(run, 'n_components', 'n/a')}\n"
-                f"filter_by_cluster=n/a"
-            ) if run is not None else "k=n/a | scale_method=None |\ntypedist=n/a |\ntypereg=n/a | n_components=n/a\nfilter_by_cluster=n/a"
+                f"cluster=n/a"
+            ) if run is not None else "k=n/a | scale_method=None |\ntypedist=n/a |\ntypereg=n/a | n_components=n/a\ncluster=n/a"
             metric_rows = [
                 "MAPE_38=n/a | MAPE_14=n/a | MAPE_24=n/a",
                 "MAE_38=n/a | MAE_14=n/a | MPE_24=n/a",
                 "BIAS_38=n/a | BIAS_14=n/a | BIAS_24=n/a",
             ]
 
-        cluster_text = f"cluster={cluster_val}" if pd.notna(cluster_val) else "cluster=n/a"
+        cluster_text = (
+            f"analog_cluster={cluster_val}"
+            if pd.notna(cluster_val) else "analog_cluster=n/a"
+        )
 
         if run is not None:
             window_start = run.forecast_start.strftime("%m-%d %H:%M")
@@ -2088,7 +2176,7 @@ def plot_batch_pair_sequences_grid(
             f"{metric_rows[0]}\n"
             f"{metric_rows[1]}\n"
             f"{metric_rows[2]}\n"
-            f"<-pre-holiday (X / Y)            target holiday (X' / Y') ->"
+            f"<-pre-holiday (X / Y)   holiday (X' / Y')   post-holiday recovery (+24h real) ->"
         )
 
         if run is None:
@@ -2100,11 +2188,15 @@ def plot_batch_pair_sequences_grid(
         adjusted_forecast_profile = None
         if adjusted_forecasts_by_date is not None:
             adjusted_forecast_profile = adjusted_forecasts_by_date.get(target_date)
+        post_holiday_actual_profile = None
+        if post_holiday_actuals_by_date is not None:
+            post_holiday_actual_profile = post_holiday_actuals_by_date.get(target_date)
 
         plot_analog_pair_sequences(
             run,
             ax=ax,
             adjusted_forecast_profile=adjusted_forecast_profile,
+            post_holiday_actual_profile=post_holiday_actual_profile,
         )
 
         ax.set_title(panel_title, fontsize=11, color="#ff8000")
@@ -2259,11 +2351,13 @@ def plot_analog_pair_sequences(
     ax=None,
     adjusted_forecast_profile: Optional[np.ndarray] = None,
     adjusted_forecast_label: str = "Adjusted forecast Y'",
+    post_holiday_actual_profile: Optional[np.ndarray] = None,
 ):
     """Plot historical X/X' pairs together with the forecast Y' sequence."""
     pair_length = run.season_length
-    horizon = pair_length * 2
-    hours = _pair_relative_hour_axis(run)
+    recovery_hours_count = POST_HOLIDAY_RECOVERY_HOURS
+    horizon = pair_length * 2 + recovery_hours_count
+    hours = _pair_relative_hour_axis(run, extra_hours=recovery_hours_count)
     tick_step = _hour_tick_step(horizon)
 
     if ax is None:
@@ -2271,29 +2365,52 @@ def plot_analog_pair_sequences(
     else:
         fig = ax.figure
 
+    valid_positions = [
+        pos
+        for pos in run.positions
+        if pos + 2 * pair_length <= len(run.hourly_series)
+    ]
     context_profiles = np.array(
-        [
-            run.hourly_series[pos:pos + pair_length]
-            for pos in run.positions
-            if pos + 2 * pair_length <= len(run.hourly_series)
-        ],
+        [run.hourly_series[pos:pos + pair_length] for pos in valid_positions],
         dtype=np.float64,
     )
-    future_profiles = run.neighbors2[: len(context_profiles)]
+    future_profiles = run.neighbors2[: len(valid_positions)]
 
     if max_pairs is not None:
+        valid_positions = valid_positions[:max_pairs]
         context_profiles = context_profiles[:max_pairs]
         future_profiles = future_profiles[:max_pairs]
 
-    pair_count = min(len(context_profiles), len(future_profiles))
+    pair_count = min(len(valid_positions), len(future_profiles))
+    valid_positions = valid_positions[:pair_count]
     if pair_count > 0:
         pair_paths = np.hstack([context_profiles[:pair_count], future_profiles[:pair_count]])
+        pair_hours = hours[: pair_length * 2]
         for idx, pair in enumerate(pair_paths):
             label = "Historical X/X' pairs" if idx == 0 else None
-            ax.plot(hours, pair, color="#669bbc", alpha=0.28, linewidth=1.4, label=label)
+            ax.plot(pair_hours, pair, color="#669bbc", alpha=0.28, linewidth=1.4, label=label)
 
     context_hours = hours[:pair_length]
-    forecast_hours = hours[pair_length:]
+    forecast_hours = hours[pair_length: pair_length * 2]
+    recovery_hours = hours[pair_length * 2:]
+
+    recovery_label_added = False
+    for pos in valid_positions:
+        recovery_start = pos + 2 * pair_length
+        recovery_end = recovery_start + recovery_hours_count
+        if recovery_end > len(run.hourly_series):
+            continue
+        recovery_profile = run.hourly_series[recovery_start:recovery_end]
+        ax.plot(
+            recovery_hours,
+            recovery_profile,
+            color="#669bbc",
+            alpha=0.24,
+            linewidth=1.2,
+            linestyle="--",
+            label="Historical recovery +24h" if not recovery_label_added else None,
+        )
+        recovery_label_added = True
 
     # Y: context window immediately before the forecast start.
     if run.previous_day_profile is not None and len(run.previous_day_profile) == pair_length:
@@ -2334,14 +2451,33 @@ def plot_analog_pair_sequences(
             label="Actual Y'",
         )
 
+    if post_holiday_actual_profile is None:
+        post_holiday_actual_profile = getattr(run, "post_holiday_actual_profile", None)
+
+    if (
+        post_holiday_actual_profile is not None
+        and len(post_holiday_actual_profile) == recovery_hours_count
+    ):
+        ax.plot(
+            recovery_hours,
+            post_holiday_actual_profile,
+            color="#000000",
+            linewidth=1.9,
+            linestyle="--",
+            label="Actual recovery +24h",
+        )
+
     forecast_boundary = forecast_hours[0] - 0.5
+    recovery_boundary = recovery_hours[0] - 0.5
     ax.axvline(forecast_boundary, color="#ff8000", linestyle=":", linewidth=1.2)
+    ax.axvline(recovery_boundary, color="#2a9d8f", linestyle=":", linewidth=1.0)
     ax.axvspan(hours[0] - 0.5, forecast_boundary, color="#ff8000", alpha=0.04)
-    ax.axvspan(forecast_boundary, hours[-1] + 0.5, color="#d62828", alpha=0.035)
+    ax.axvspan(forecast_boundary, recovery_boundary, color="#d62828", alpha=0.035)
+    ax.axvspan(recovery_boundary, hours[-1] + 0.5, color="#2a9d8f", alpha=0.03)
     if run.forecast_start_offset_hours > 0:
         ax.axvline(-0.5, color="#6c757d", linestyle="--", linewidth=1.0, label="Holiday start")
 
-    ax.set_title("X/X' selection and Y' forecast", fontsize="x-large", color="#ff8000")
+    ax.set_title("X/X' selection, Y' forecast, and recovery day", fontsize="x-large", color="#ff8000")
     ax.set_xlabel("Hour relative to holiday start", color="#ff8000", fontsize="large")
     ax.set_ylabel("Demand", color="#ff8000", fontsize="large")
     ax.set_xticks(hours[::tick_step])
