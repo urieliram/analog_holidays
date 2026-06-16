@@ -1029,6 +1029,7 @@ def tune_analog_holidays_optuna(
     initial_n_components: int = 3,
     initial_regressor_params: Optional[dict[str, object]] = None,
     optuna_min_k: int = 3,
+    optuna_max_k: Optional[int] = None,
     n_trials: int = 25,
     timeout_sec: Optional[int] = 900,
     max_eval_dates: Optional[int] = 12,
@@ -1209,8 +1210,12 @@ def tune_analog_holidays_optuna(
 
     # Search bounds for k: lower bound comes from optuna_min_k, while the upper bound
     # is the smallest realizable analog pool across retained evaluation folds
-    # and the final target run, capped at 24.
-    optuna_max_k = min(final_target_analog_cap, min(eligible_k_caps), 24)
+    # and the final target run, capped at 24 (and at the optuna_max_k ceiling when
+    # provided -- e.g. a per-cluster cap so deep holidays cannot over-select analogs).
+    _resolved_max_k = min(final_target_analog_cap, min(eligible_k_caps), 24)
+    if optuna_max_k is not None:
+        _resolved_max_k = min(_resolved_max_k, int(optuna_max_k))
+    optuna_max_k = max(_resolved_max_k, optuna_min_k)
 
     def objective(trial) -> float:
         # ── Search grid ───────────────────────────────────────────────────────

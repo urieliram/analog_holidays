@@ -3046,6 +3046,18 @@ ANALOG_CLUSTER_CRITERIA_CATALOG = {
         'Groups holiday dates by best_matching_weekday, the closest weekday-profile '
         'label assigned to each date.'
     ),
+    'observance_tier': (
+        'Groups holiday dates by how inhábil they actually are (observance tier): '
+        'working (barely a holiday, e.g. Labor Day), partial (industry/commerce '
+        'partially active, e.g. Holy Saturday) and full (fully observed, e.g. '
+        'Christmas Day). Tiers derived from the observed_strength diagnostic.'
+    ),
+    'observance_tier_depth': (
+        'Four-tier refinement of observance_tier that splits the fully-observed group '
+        'by demand-drop depth: working, partial, full_civic (shallow ~15% drop, e.g. '
+        'Independence/Constitution) and full_deep (~30% drop, e.g. Christmas/New Year). '
+        'Separates patriotic civic holidays from the deep Dec-Jan winter holidays.'
+    ),
 }
 
 _SEASONAL_ANALOG_VALUE_ALIASES = {
@@ -3067,6 +3079,48 @@ _HEAT_COLD_SEASON_MAP = {
 _SHAPE_PEARSON_ANALOG_ORDER = tuple('CDEFGHIJKLMNOPQRSTUVWXYZ')
 _SEASONAL_ANALOG_ORDER = ('winter', 'spring', 'fall', 'summer')
 _SEASONAL_HEAT_COLD_ORDER = ('heat', 'cold')
+
+# Observance tier per anchor holiday. Derived from the observed_strength diagnostic
+# (shared/observed_strength.py): median observed_strength across regions/years, i.e.
+# actual_demand_drop / typical_demand_drop. Thresholds: <0.55 -> working,
+# 0.55-0.80 -> partial, >=0.80 -> full. The strength shown in the comment is the
+# per-anchor median that placed it in its tier.
+_OBSERVANCE_TIER_BY_ANCHOR = {
+    'labor day': 'working',              # 0.47 -- least inhábil
+    'mexican revolution day': 'working',  # 0.54
+    'holy saturday': 'partial',          # 0.57
+    'maundy thursday': 'partial',        # 0.63
+    'good friday': 'partial',            # 0.70
+    'christmas eve': 'partial',          # 0.71
+    "new year's eve": 'partial',         # 0.77
+    'christmas day': 'full',             # 0.85
+    'constitution day': 'full',          # 0.88
+    "new year's day": 'full',            # 0.94
+    "benito juarez's birthday": 'full',  # 0.97
+    'independence day': 'full',          # 0.99 -- fully observed
+}
+_OBSERVANCE_TIER_ORDER = ('working', 'partial', 'full')
+
+# Four-tier refinement: split the fully-observed anchors by demand-drop DEPTH (typical
+# drop = how far below a normal weekday the holiday lands, from the observed_strength
+# diagnostic). Civic patriotic holidays drop ~15% (Independence 14.3%, Juarez 15.4%,
+# Constitution 16.7%); the Dec-Jan winter holidays drop ~30% (Christmas Day 30.8%,
+# New Year's Day 30.2%). Working/partial are unchanged from observance_tier.
+_OBSERVANCE_TIER_DEPTH_BY_ANCHOR = {
+    'labor day': 'working',
+    'mexican revolution day': 'working',
+    'holy saturday': 'partial',
+    'maundy thursday': 'partial',
+    'good friday': 'partial',
+    'christmas eve': 'partial',
+    "new year's eve": 'partial',
+    'constitution day': 'full_civic',     # ~16.7% drop
+    "benito juarez's birthday": 'full_civic',  # ~15.4%
+    'independence day': 'full_civic',     # ~14.3%
+    'christmas day': 'full_deep',         # ~30.8%
+    "new year's day": 'full_deep',        # ~30.2%
+}
+_OBSERVANCE_TIER_DEPTH_ORDER = ('working', 'partial', 'full_civic', 'full_deep')
 
 
 def _normalize_analog_criterion_name(criterion: str) -> str:
@@ -3101,6 +3155,28 @@ def _derive_seasonal_heat_cold_analog_criterion_value(row: pd.Series) -> object:
     if pd.isna(seasonal_value):
         return pd.NA
     return _HEAT_COLD_SEASON_MAP.get(str(seasonal_value).strip().lower(), pd.NA)
+
+
+def _derive_observance_tier_analog_criterion_value(row: pd.Series) -> object:
+    """Map a holiday's anchor name to its observance tier (working/partial/full)."""
+    anchor_value = row.get('anchor_holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        anchor_value = row.get('holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        return pd.NA
+    anchor_text = str(anchor_value).strip().lower()
+    return _OBSERVANCE_TIER_BY_ANCHOR.get(anchor_text, pd.NA)
+
+
+def _derive_observance_tier_depth_analog_criterion_value(row: pd.Series) -> object:
+    """Map a holiday's anchor name to its depth-aware observance tier."""
+    anchor_value = row.get('anchor_holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        anchor_value = row.get('holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        return pd.NA
+    anchor_text = str(anchor_value).strip().lower()
+    return _OBSERVANCE_TIER_DEPTH_BY_ANCHOR.get(anchor_text, pd.NA)
 
 
 def _resolve_analog_criterion_spec(criterion: str) -> dict:
@@ -3138,6 +3214,18 @@ def _resolve_analog_criterion_spec(criterion: str) -> dict:
             'prior_col': None,
             'ordered_values': _SEASONAL_ANALOG_ORDER,
             'value_getter': _derive_seasonal_analog_criterion_value,
+        },
+        'observance_tier': {
+            'selector_col': None,
+            'prior_col': None,
+            'ordered_values': _OBSERVANCE_TIER_ORDER,
+            'value_getter': _derive_observance_tier_analog_criterion_value,
+        },
+        'observance_tier_depth': {
+            'selector_col': None,
+            'prior_col': None,
+            'ordered_values': _OBSERVANCE_TIER_DEPTH_ORDER,
+            'value_getter': _derive_observance_tier_depth_analog_criterion_value,
         },
     }
 

@@ -515,8 +515,103 @@ class AnalogPackageSmokeTests(unittest.TestCase):
                 "seasonal_heat_cold",
                 "seasonal_winter_sprint_fall",
                 "best_matching_weekday",
+                "observance_tier",
+                "observance_tier_depth",
             },
         )
+
+    def test_observance_tier_depth_criterion_splits_full_into_civic_and_deep(self) -> None:
+        from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters
+
+        anchors = ["Labor Day", "Holy Saturday", "Independence Day", "Christmas Day"]
+        df_selector = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 4,
+                "holiday_name": anchors,
+                "anchor_holiday_name": anchors,
+                "date": [
+                    pd.Timestamp("2024-05-01"),
+                    pd.Timestamp("2024-03-30"),
+                    pd.Timestamp("2024-09-16"),
+                    pd.Timestamp("2024-12-25"),
+                ],
+                "holiday_day_type": ["H2", "H3", "H2", "H2"],
+            }
+        )
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 4,
+                "anchor_holiday_name": anchors,
+                "holiday_day_type": ["H2", "H3", "H2", "H2"],
+            }
+        )
+
+        cluster_results = assign_holiday_selector_analog_clusters(
+            df_selector=df_selector,
+            df_priors=df_priors,
+            criterion="observance_tier_depth",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        df_selector_clusters = cluster_results["df_selector_clusters"]
+        df_catalog = cluster_results["analog_cluster_catalog"]
+        by_anchor = dict(
+            zip(df_selector_clusters["anchor_holiday_name"], df_selector_clusters["analog_criterion_value"])
+        )
+        self.assertEqual(by_anchor["Labor Day"], "working")
+        self.assertEqual(by_anchor["Holy Saturday"], "partial")
+        self.assertEqual(by_anchor["Independence Day"], "full_civic")
+        self.assertEqual(by_anchor["Christmas Day"], "full_deep")
+        # four ordered tiers map to F/G/H/I
+        self.assertEqual(
+            df_catalog["analog_criterion_value"].tolist(),
+            ["working", "partial", "full_civic", "full_deep"],
+        )
+        self.assertEqual(df_catalog["analog_cluster"].tolist(), ["F", "G", "H", "I"])
+
+    def test_observance_tier_criterion_assigns_working_partial_full(self) -> None:
+        from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters
+
+        df_selector = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 3,
+                "holiday_name": ["Labor Day", "Holy Saturday", "Christmas Day"],
+                "anchor_holiday_name": ["Labor Day", "Holy Saturday", "Christmas Day"],
+                "date": [
+                    pd.Timestamp("2024-05-01"),
+                    pd.Timestamp("2024-03-30"),
+                    pd.Timestamp("2024-12-25"),
+                ],
+                "holiday_day_type": ["H2", "H3", "H2"],
+            }
+        )
+        df_priors = pd.DataFrame(
+            {
+                "unique_id": ["SEN_demand_SIN"] * 3,
+                "anchor_holiday_name": ["Labor Day", "Holy Saturday", "Christmas Day"],
+                "holiday_day_type": ["H2", "H3", "H2"],
+            }
+        )
+
+        cluster_results = assign_holiday_selector_analog_clusters(
+            df_selector=df_selector,
+            df_priors=df_priors,
+            criterion="observance_tier",
+            group_cols=("unique_id", "anchor_holiday_name", "holiday_day_type"),
+        )
+
+        df_selector_clusters = cluster_results["df_selector_clusters"].sort_values("date").reset_index(drop=True)
+        df_catalog = cluster_results["analog_cluster_catalog"]
+
+        by_anchor = dict(
+            zip(df_selector_clusters["anchor_holiday_name"], df_selector_clusters["analog_criterion_value"])
+        )
+        self.assertEqual(by_anchor["Labor Day"], "working")
+        self.assertEqual(by_anchor["Holy Saturday"], "partial")
+        self.assertEqual(by_anchor["Christmas Day"], "full")
+        # ordered_values place working->F, partial->G, full->H
+        self.assertEqual(df_catalog["analog_criterion_value"].tolist(), ["working", "partial", "full"])
+        self.assertEqual(df_catalog["analog_cluster"].tolist(), ["F", "G", "H"])
 
     def test_seasonal_heat_cold_criterion_assigns_binary_labels(self) -> None:
         from analog_holidays.shared.identify_holidays import assign_holiday_selector_analog_clusters

@@ -1,0 +1,118 @@
+id: experiment_2026_06_15_11_51
+created: '2026-06-15T11:52:14'
+provenance:
+  git_commit: 678924d3f5adc39ef7d387e47eab268e786b9bba
+  git_branch: analog_holiday_H1_H2_H3
+  git_dirty: true
+scope:
+  unique_ids:
+  - SEN_demand_CEL
+  - SEN_demand_NES
+  - SEN_demand_NOR
+  - SEN_demand_NTE
+  - SEN_demand_OCC
+  - SEN_demand_ORI
+  - SEN_demand_PEN
+  - SEN_demand_SIN
+  n_series: 8
+  n_metric_rows: 152
+  target_dates:
+  - '2025-01-01'
+  - '2025-02-03'
+  - '2025-03-17'
+  - '2025-04-17'
+  - '2025-04-18'
+  - '2025-04-19'
+  - '2025-05-01'
+  - '2025-09-16'
+  - '2025-11-17'
+  - '2025-12-24'
+  - '2025-12-25'
+  - '2025-12-31'
+  - '2026-01-01'
+  - '2026-02-02'
+  - '2026-03-16'
+  - '2026-04-02'
+  - '2026-04-03'
+  - '2026-04-04'
+  - '2026-05-01'
+  primary_metric: mape_24h_pct
+config:
+  window:
+    season_length: 38
+    forecast_start_offset_hours: 14
+    special_labels:
+    - holiday
+  cluster:
+    use_cluster: true
+    match_target_cluster: true
+    cluster_column: analog_cluster
+  analog_selection:
+    typedist: pearson
+    k: 2
+    min_special_points: 24
+    min_event_gap: 12
+    max_events: null
+    recent_weekend_analogs: 0
+  regression:
+    typereg: PLS
+    scale_method: minmax
+    n_components: 2
+    regressor_params: {}
+    levels:
+    - 50
+    - 80
+    - 95
+  tuning:
+    optuna_min_k: 2
+    optuna_min_k_by_cluster:
+      F: 2
+      G: 2
+      H: 2
+    n_trials: 25
+    timeout_sec: 900
+    typedist_choices:
+    - pearson
+    - euclidian
+    typereg_choices:
+    - PCR
+    - PLS
+    - RidgeReg
+    - LassoReg
+    scale_method_choices:
+    - null
+    - standard
+    - minmax
+  training_cutoff: rolling
+  history_start: '2023-01-01'
+  source_path: /home/uriel/GIT/analog_holidays/holidays/working/holiday_demand_mx_20260615_081952_from20230101.csv
+  target_dates_var: TARGET_DATES_2025
+outputs:
+  metrics_csv: metrics.csv
+  summary_csv: summary.csv
+  plots:
+  - batch_inference_SEN_demand_CEL.png
+  - batch_inference_SEN_demand_NES.png
+  - batch_inference_SEN_demand_NOR.png
+  - batch_inference_SEN_demand_NTE.png
+  - batch_inference_SEN_demand_OCC.png
+  - batch_inference_SEN_demand_ORI.png
+  - batch_inference_SEN_demand_PEN.png
+  - batch_inference_SEN_demand_SIN.png
+  - batch_pair_sequences_SEN_demand_CEL.png
+  - batch_pair_sequences_SEN_demand_NES.png
+  - batch_pair_sequences_SEN_demand_NOR.png
+  - batch_pair_sequences_SEN_demand_NTE.png
+  - batch_pair_sequences_SEN_demand_OCC.png
+  - batch_pair_sequences_SEN_demand_ORI.png
+  - batch_pair_sequences_SEN_demand_PEN.png
+  - batch_pair_sequences_SEN_demand_SIN.png
+  - SEN_demand_CEL.png
+  - SEN_demand_NES.png
+  - SEN_demand_NOR.png
+  - SEN_demand_NTE.png
+  - SEN_demand_OCC.png
+  - SEN_demand_ORI.png
+  - SEN_demand_PEN.png
+  - SEN_demand_SIN.png
+  notes: notes.md
