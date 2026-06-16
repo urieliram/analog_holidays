@@ -148,6 +148,56 @@ Driver: `experiments/run_kcap_experiment.py`. No-op verificado (cap=None = contr
   Mediana dentro de ruido; ganancia real en media/cola. **ADOPTADO en producción** (notebook In[3]
   define el dict, In[7] pasa `optuna_max_k=_target_max_k` al tune; param `optuna_max_k` en el core).
 
+### 9. Diagnóstico regional — el gap NES/NTE/PEN es ruido IRREDUCIBLE, no pool pobre
+Las 3 peores regiones (NES 6.26%, PEN 6.22%, NTE 7.12% mediana mape_24) vs las 3 mejores
+(CEL 2.10%, OCC 2.46%, SIN 3.02%) — spread 3×. Tres hipótesis, `experiments/diagnose_regional.py`
+(sobre la corrida con plots `...production_cap_H6_plotted`):
+
+| Hipótesis | Medición | Veredicto |
+|---|---|---|
+| H1 pool pobre/escaso | `selected_analogs` vs `k` | ❌ **RECHAZADA**: 0 celdas starved; pool idéntico (mismos festivos) |
+| H2 demanda más ruidosa | rRMSE día-normal vs climatología (dow,hour) | ✅ corr **0.53**: NES/NTE/PEN 18-20% vs buenas 4-11% |
+| H3 observancia inconsistente | std año-a-año del drop del festivo | ✅ corr **0.55**: NES/NTE/PEN 14-17% vs buenas 7-10% |
+
+- **No es problema de método ni de pool.** Las pair-sequences lo muestran: en CEL los análogos
+  (gris) están apretados y el target cae limpio entre ellos; en NES están **dispersos** (no concuerdan).
+- H2 y H3 son la misma raíz: **estas regiones son intrínsecamente menos predecibles** — más ruido en
+  días normales Y drops de festivo más variables año-a-año. El método análogo reduce el ruido pero no
+  puede vencer la varianza irreducible. Buena parte del 6-7% es **piso de ruido, no gap arreglable.**
+- Anomalía NOR: 29% ruido / 20.5 var-drop pero 3.5% MAPE → es **estacional** (CV 32%), no aleatorio;
+  los proxies crudos lo sobreestiman. Para NES/NTE/PEN las dos señales independientes coinciden.
+- Hipótesis de fondo (sin probar, fuera del pipeline análogo): NES (Monterrey, industrial), NTE,
+  PEN (Yucatán, AC) son **sensibles al clima** → su variabilidad probablemente la dirige la
+  temperatura, que el método análogo (sin covariables) no ve. Un covariate de clima sería el lever real.
+- **Implicación:** no perseguir bajar el MAPE de estas regiones a niveles de CEL (es irreducible).
+  Medir honesto **por región** y un agregado consciente del piso; lo accionable es intervalos más
+  anchos / probabilístico y bias por región, no más tuning de punto. El headline (3.74%) está
+  dominado por estas regiones difíciles.
+
+### 10. Medición honesta (skill vs persistencia) — refina el hallazgo 9
+`experiments/report_honest.py`: por región, MAPE del método vs baseline naive de **persistencia**
+(mismo festivo, año previo), y skill = 1 − método/persistencia.
+
+| Región | método_med | persist_med | skill | lectura |
+|---|---|---|---|---|
+| tratables (CEL/SIN/OCC/NOR/ORI) | **2.88** | 4.08 | 0.37 | método rinde parejo |
+| PEN | 6.22 | **14.74** | **0.43** | genuinamente volátil; el método gana mucho |
+| NES | 6.26 | 6.03 | 0.17 | marginal vs naive |
+| **NTE** | 7.12 | **4.97** | **−0.50** | **el método es PEOR que naive** |
+
+- **Headline reencuadrado (confirmado):** tratables = **2.88%** vs raw 3.74%. El número global lo
+  inflan las 3 difíciles; el método en regiones normales es ~2.9%. Se ve mejor de lo que dice el 3.74%.
+- **CORRIGE el hallazgo 9:** NO todo el gap es irreducible. La persistencia lo descompone:
+  - **PEN = irreducible** (persistencia 14.74; festivos muy variables) y ahí el método ya hace su trabajo.
+  - **NTE = fallo de método ARREGLABLE** (persistencia 4.97 < método 7.12; sus festivos SÍ son
+    predecibles año-a-año, pero el análogo selecciona mal / sobre-regresiona y los empeora).
+  - **NES = marginal** (método ≈ naive).
+- El proxy de "drop_yoy_std" del hallazgo 9 sobreestimó la inconsistencia de NTE (mezclaba festivos
+  distintos); persistencia mismo-festivo muestra que NTE es predecible. Caveat: n=19/región, señal direccional.
+- **Lever concreto que surge:** donde el método pierde vs naive (NTE, y NES marginal), **piso/mezcla
+  con persistencia** (fallback a último año cuando los análogos no concuerdan) o revisar la selección
+  de análogos de NTE. Barato y dentro del pipeline.
+
 ## Configuración de producción (estado actual)
 - **Criterio:** 3-tier `observance_tier` (F=working, G=partial, H=full) — en M_identify y en
   `holidays/holiday_selector_features.csv`.

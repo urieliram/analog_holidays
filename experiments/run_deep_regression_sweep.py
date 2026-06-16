@@ -252,7 +252,8 @@ def _enrich_panel_metrics(rolling_daily_table, rolling_runs):
     return out
 
 
-def run_variant(typereg_choices, slug, target_items=None, min_event_gap=None, config_extra=None):
+def run_variant(typereg_choices, slug, target_items=None, min_event_gap=None,
+                config_extra=None, make_plots=False):
     """Run the rolling loop + enrichment + logging for one config.
 
     Parametrized so the same machinery serves the deep regression sweep and other
@@ -373,8 +374,27 @@ def run_variant(typereg_choices, slug, target_items=None, min_event_gap=None, co
     }
     if config_extra:
         config.update(config_extra)
+
+    figures = {}
+    if make_plots:
+        from analog_holidays.analog.analog_holidays import (
+            plot_batch_inference_grid, plot_batch_pair_sequences_grid,
+        )
+        for uid, br in batch_results.items():
+            try:
+                fig, _ = plot_batch_inference_grid(
+                    br, title=f"Batch inference (forecast vs actual) | {uid} | {slug}\n"
+                              f"window={SEASON_LENGTH}h | start=-{FORECAST_START_OFFSET_HOURS}h")
+                figures[f"batch_inference_{uid}"] = fig
+                figseq, _ = plot_batch_pair_sequences_grid(
+                    br, title=f"X/X' and Y/Y' pair sequences | {uid} | {slug}")
+                figures[f"batch_pair_sequences_{uid}"] = figseq
+            except Exception as exc:
+                print(f"  [plot] {uid} FAILED: {exc}", flush=True)
+        print(f"  generated {len(figures)} figures", flush=True)
+
     exp_dir = save_experiment_run(
-        config=config, batch_results=batch_results, figures={},
+        config=config, batch_results=batch_results, figures=figures,
         selector_features_path=SELECTOR_FEATURES_PATH, slug=slug, verbose=True,
     )
     # quick read-out
