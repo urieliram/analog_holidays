@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "calendar_name": "ercot_holidays",
+  "display_name": "ERCOT / Texas holiday calendar",
+  "country": "US",
+  "region": "Texas",
+  "timezone": "America/Chicago",
+  "intended_dataset": "holidays/holiday_demand_ercot.csv",
+  "sources": [
+    {
+      "label": "ERCOT Historical Load Data",
+      "url": "https://www.ercot.com/gridinfo/load/load_hist"
+    },
+    {
+      "label": "ERCOT Actual Loads of Weather Zones",
+      "url": "https://www.ercot.com/content/cdr/html/actual_loads_of_weather_zones.html"
+    }
+  ],
+  "tagging_convention": {
+    "granularity": "hourly",
+    "flag_value": 1,
+    "flag_scope": "all 24 local hours for each holiday date present in the demand file"
+  },
+  "reference_year": 2026,
+  "holidays": [
+    {
+      "id": "new_years_day",
+      "name_es": "A\u00f1o Nuevo",
+      "name_en": "New Year's Day",
+      "scope": "federal",
+      "date_type": "fixed",
+      "month": 1,
+      "day": 1,
+      "reference_date": "2026-01-01"
+    },
+    {
+      "id": "martin_luther_king_jr_day",
+      "name_es": "Natalicio de Martin Luther King Jr.",
+      "name_en": "Martin Luther King Jr. Day",
+      "scope": "federal",
+      "date_type": "relative_weekday",
+      "month": 1,
+      "weekday": "monday",
+      "week_of_month": 3,
+      "reference_date": "2026-01-19"
+    },
+    {
+      "id": "presidents_day",
+      "name_es": "D\u00eda de los Presidentes",
+      "name_en": "Presidents' Day",
+      "scope": "federal",
+      "date_type": "relative_weekday",
+      "month": 2,
+      "weekday": "monday",
+      "week_of_month": 3,
+      "reference_date": "2026-02-16"
+    },
+    {
+      "id": "texas_independence_day",
+      "name_es": "D\u00eda de la Independencia de Texas",
+      "name_en": "Texas Independence Day",
+      "scope": "texas",
+      "date_type": "fixed",
+      "month": 3,
+      "day": 2,
+      "reference_date": "2026-03-02",
+      "description_es": "Conmemora la declaraci\u00f3n de independencia de Texas de 1836."
+    },
+    {
+      "id": "san_jacinto_day",
+      "name_es": "D\u00eda de San Jacinto",
+      "name_en": "San Jacinto Day",
+      "scope": "texas",
+      "date_type": "fixed",
+      "month": 4,
+      "day": 21,
+      "reference_date": "2026-04-21",
+      "description_es": "Honra la victoria que asegur\u00f3 la independencia de Texas en 1836."
+    },
+    {
+      "id": "memorial_day",
+      "name_es": "D\u00eda de los Ca\u00eddos",
+      "name_en": "Memorial Day",
+      "scope": "federal",
+      "date_type": "relative_weekday",
+      "month": 5,
+      "weekday": "monday",
+      "week_of_month": -1,
+      "reference_date": "2026-05-25"
+    },
+    {
+      "id": "juneteenth",
+      "name_es": "Juneteenth (D\u00eda de la Emancipaci\u00f3n)",
+      "name_en": "Juneteenth National Independence Day",
+      "scope": "federal",
+      "date_type": "fixed",
+      "month": 6,
+      "day": 19,
+      "reference_date": "2026-06-19"
+    },
+    {
+      "id": "independence_day_us",
+      "name_es": "D\u00eda de la Independencia de EE. UU.",
+      "name_en": "Independence Day",
+      "scope": "federal",
+      "date_type": "fixed",
+      "month": 7,
+      "day": 4,
+      "reference_date": "2026-07-04"
+    },
+    {
+      "id": "lyndon_b_johnson_day",
+      "name_es": "D\u00eda de Lyndon B. Johnson",
+      "name_en": "Lyndon B. Johnson Day",
+      "scope": "texas",
+      "date_type": "fixed",
+      "month": 8,
+      "day": 27,
+      "reference_date": "2026-08-27",
+      "description_es": "Observancia oficial en honor al expresidente y nativo de Texas."
+    },
+    {
+      "id": "labor_day",
+      "name_es": "D\u00eda del Trabajo",
+      "name_en": "Labor Day",
+      "scope": "federal",
+      "date_type": "relative_weekday",
+      "month": 9,
+      "weekday": "monday",
+      "week_of_month": 1,
+      "reference_date": "2026-09-07"
+    },
+    {
+      "id": "veterans_day",
+      "name_es": "D\u00eda de los Veteranos",
+      "name_en": "Veterans Day",
+      "scope": "federal",
+      "date_type": "fixed",
+      "month": 11,
+      "day": 11,
+      "reference_date": "2026-11-11"
+    },
+    {
+      "id": "thanksgiving",
+      "name_es": "D\u00eda de Acci\u00f3n de Gracias",
+      "name_en": "Thanksgiving Day",
+      "scope": "federal",
+      "date_type": "relative_weekday",
+      "month": 11,
+      "weekday": "thursday",
+      "week_of_month": 4,
+      "reference_date": "2026-11-26"
+    },
+    {
+      "id": "day_after_thanksgiving",
+      "name_es": "D\u00eda despu\u00e9s de Acci\u00f3n de Gracias",
+      "name_en": "Day after Thanksgiving",
+      "scope": "regional",
+      "date_type": "relative_to_holiday",
+      "relative_to": "thanksgiving",
+      "offset_days": 1,
+      "reference_date": "2026-11-27",
+      "description_es": "Feriado regional que extiende el periodo festivo de Acci\u00f3n de Gracias."
+    },
+    {
+      "id": "christmas_eve",
+      "name_es": "Nochebuena",
+      "name_en": "Christmas Eve",
+      "scope": "regional",
+      "date_type": "fixed",
+      "month": 12,
+      "day": 24,
+      "reference_date": "2026-12-24",
+      "description_es": "Feriado regional que extiende el periodo festivo de Navidad."
+    },
+    {
+      "id": "christmas_day",
+      "name_es": "Navidad",
+      "name_en": "Christmas Day",
+      "scope": "federal",
+      "date_type": "fixed",
+      "month": 12,
+      "day": 25,
+      "reference_date": "2026-12-25"
+    }
+  ]
+}

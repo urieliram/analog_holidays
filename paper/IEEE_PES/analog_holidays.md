@@ -6,7 +6,7 @@ Analogue and Moving Average Tools" (`docs/analog_paper`). This file reports only
 implemented in the repository `https://github.com/urieliram/analog_holidays`; ideas that are not yet
 implemented are confined to the Future Work section.*
 
-**Authors:** U. I. Lezama-Lope, M. Cecenas-Falcon, *et al.* (to complete)
+**Authors:** U. I. Lezama-Lope, M. Borunda-Pacheco, M. Á. Aguilar-Luna
 
 ---
 
@@ -26,9 +26,9 @@ similar pre-holiday days, the Analogue algorithm is specialised to reconstruct t
 The neighbour pool is further conditioned by an *observance-tier* clustering that groups holidays by how
 strongly they are actually observed. The results, evaluated on the seven control regions and the
 national aggregate of the Mexican interconnected system over 2025–2026, show good accuracy compared with
-same-holiday naive baselines, together with negligible computation time. We intend this approach to
-contribute to a better prediction of these days, which remain a significant challenge for the
-organisations in charge of energy management.
+seasonal naive baselines, together with negligible computation time. We intend this approach to
+contribute to a better prediction of these days, which remain a significant challenge for ISOs such as
+CENACE.
 
 **Index Terms—** short-term load forecasting, holiday forecasting, analogue method, nearest neighbours,
 observance clustering, low-data regimes.
@@ -73,11 +73,10 @@ Several works address electricity-demand forecasting specifically on holidays. S
 a day-ahead short-term load forecasting scheme for holidays based on the modification of similar days'
 load profiles. Ebrahimi and Moshari [2] use a fuzzy improved similar-day method for short-term holiday
 forecasting. A German case study [3] models public holidays in load forecasting and reports that
-holidays resemble Sundays. Cecenas-Falcon and Lezama-Lope [4] contribute a simple and efficient model
-that captures the gradual reduction and recovery of demand during these days, building annual demand
-profiles by means of deterministic shape functions fitted from normalised hourly profiles of similar
-days; this allows realistic profiles for demand forecasting and energy-planning studies. A graduate
-thesis [5] is likewise devoted to modelling holidays in electricity-demand prediction.
+holidays resemble Sundays. Borunda *et al.* [4] discuss advances in similar-day methods for short-term
+load forecasting in power systems, reinforcing the relevance of selecting historical days with
+comparable demand behaviour. A graduate thesis [5] is likewise devoted to modelling holidays in
+electricity-demand prediction.
 
 Gunawan and Huang [6] present an extensible framework for short-term holiday load forecasting that
 combines Dynamic Time Warping (DTW) and an LSTM network (the DynaNC method and its LSTMH extension). The
@@ -141,9 +140,9 @@ calendar variables alone.
 
 Depending on the operational horizon—real-time (seconds to minutes), very short-term (5 min to a few
 hours), short-term (24–48 h) or medium-term (7–15 days)—a lead time from minutes to hours is typically
-required. Our holiday forecast is intended as an input to the generation-dispatch processes of energy
-management organisations such as ISOs, which require the forecast a number of hours in advance, since it
-feeds the next-day scheduling of generator outputs [6]. In this work we compute the next-day forecast
+required. Our holiday forecast is intended as an input to the generation-dispatch processes of
+Independent System Operators such as CENACE, which require the forecast a number of hours in advance
+because it feeds the next-day dispatch in electricity market operations [6]. In this work we compute the next-day forecast
 with about 14 h of anticipation: the forecast is computed from 00:00 h and must be ready by 08:00 h of
 the day before the target. This implies that the information available for the target day is incomplete:
 the **14 h preceding the holiday are also unknown and must be forecast together with the 24 holiday
@@ -179,16 +178,16 @@ interchangeable *criterion*; the following criteria were implemented and compare
   echoing the observation that holidays often behave like Sundays [3];
 - **observance tier (and a depth variant):** by how strongly the day is actually observed.
 
-The criterion retained for the champion model is **observance tier**. It groups holidays not by raw
+The criterion retained for the Analog-holidays model is **observance tier**. It groups holidays not by raw
 profile shape but by **how strongly the day is actually observed**, i.e. the depth of its demand drop
 relative to the typical drop, scored per holiday and region. A static anchor-to-tier map with thresholds
 on the median observed strength produces three clusters:
 
 | Tier | Cluster | Median observed strength | Representative holidays |
 |---|---|---|---|
-| working | F | $<0.55$ | Labour Day, Revolution Day (often near working days) |
-| partial | G | $0.55$–$0.80$ | Maundy Thu, Good Fri, Holy Sat, Christmas Eve, New Year's Eve |
-| full | H | $\ge 0.80$ | Christmas Day, New Year's Day, Independence, Constitution, Juárez |
+| weakly observed | F | $<0.55$ | Labour Day, Revolution Day (often near regular operating days) |
+| partially observed | G | $0.55$–$0.80$ | Maundy Thu, Good Fri, Holy Sat, Christmas Eve, New Year's Eve |
+| fully observed | H | $\ge 0.80$ | Christmas Day, New Year's Day, Independence, Constitution, Juárez |
 
 This observance criterion replaces the earlier shape-only clustering and, as reported in Section VI,
 removes the systematic under-prediction bias on weakly observed days. The label produced here is the only
@@ -224,19 +223,20 @@ over the subsequent holidays.
 
 ### F. Per-target hyper-parameter optimisation
 
-Hyper-parameters are optimised per algorithm to find the best combination of regression type, similarity
-metric and number of neighbours $k$; when a dimensionality-reduction regressor (PCR/PLS) is used, the
-number of components is also optimised. The search uses the Optuna library. Training follows a
+Hyper-parameters are optimised per target with the Optuna library. The tuned Analog-holidays parameters
+are `typereg`, `typedist`, `scale_method`, `k` and `n_components`, corresponding respectively to the
+regression type, similarity metric, scaling option, number of neighbours and latent components for
+PCR/PLS. Training follows a
 **rolling, day-by-day nested** scheme: for each holiday in the list, Optuna is run with
 `train_end = target_date` over the historical special days available before that date; the same target
 is then forecast with the selected hyper-parameters; finally a daily table is assembled with date,
 holiday, cluster F/G/H, number of tuning dates available, $k$, similarity metric, regressor, number of
 components, selected analogues, MAE and MAPE.
 
-Two design decisions, established experimentally (Section V), are part of the champion configuration: a
+Two design decisions, established experimentally (Section V), are part of the Analog-holidays configuration: a
 minimum separation of 24 h between candidate analogue events, and a **per-cluster ceiling on $k$** of 6
 for the fully observed cluster H, which prevents the deep holidays from diluting their sharp drop with
-less-similar neighbours. The full champion configuration is summarised in Table I.
+less-similar neighbours. The full Analog-holidays configuration is summarised in Table I.
 
 ### G. A-posteriori bias correction
 
@@ -245,7 +245,7 @@ most similar neighbours, following the intraday-bias idea of [7] adapted to the 
 hourly value and the daily mean of the analogue days. This produces a bias-adjusted variant of the
 forecast in addition to the raw one.
 
-**TABLE I. Champion configuration.**
+**TABLE I. Analog-holidays configuration.**
 
 | Stage | Knob | Value |
 |---|---|---|
@@ -287,9 +287,10 @@ clustering holidays by statistical profile similarity (Pearson correlation), whi
 Constitution, Independence or Revolution Day from days such as New Year, Christmas or Good Friday. The
 observance-tier criterion of Stage 1 (Section III-D) generalises the last strategy and is the one retained.
 
-As a baseline we compare the champion against naive forecasts assembled **exclusively from each holiday's
-own history**: the most recent prior instance of the same holiday (`persist1`), and the mean profile of
-the last two, three and four instances (`mean2`, `mean3`, `mean4`). These same-holiday baselines isolate
+As a baseline we compare Analog-holidays against naive forecasts assembled **exclusively from each
+holiday's own history**: the most recent prior instance of the same holiday (`SeasonalNaive`), and the
+mean profile of the last two, three and four instances (`AvgSeasonalNaive-2`,
+`AvgSeasonalNaive-3`, `AvgSeasonalNaive-4`). These seasonal naive baselines isolate
 the value added by the analogue selection and regression over simply re-using past instances of the same
 holiday.
 
@@ -301,10 +302,10 @@ also recorded). The bias (mean signed error) is reported per region.
 
 ## V. Results
 
-The champion analogue model attains a **median MAPE of 3.74%** over the 24 holiday hours across the 152
+The Analog-holidays model attains a **median MAPE of 3.74%** over the 24 holiday hours across the 152
 test cells (8 series $\times$ 19 instances, no failures), with a mean of 5.34%. The per-series results
 are summarised in Table II. The error is dominated by a regional, not a holiday-type, effect: the three
-smallest regions (NES, NTE, PEN) are about three times worse than the largest series; restricting to the
+weather-sensitive regions (NES, NTE, PEN) are about three times worse than the largest series; restricting to the
 five most tractable series (CEL, OCC, SIN, NOR, ORI) the median MAPE is **2.88%**. A diagnostic shows
 this gap is not due to a thin analogue pool (no target is starved of analogues) but to intrinsic demand
 noise and to the year-to-year variability of the observance in those weather-sensitive regions.
@@ -316,7 +317,7 @@ select too many, less-similar analogues. The forecast-versus-actual grids and th
 pair-sequences per region are provided as figures
 (`experiments/experiment_2026_06_16_11_35_production_cap_H6_plotted/plots/`).
 
-**TABLE II. Champion MAPE by series (24 holiday hours, %), and bias.**
+**TABLE II. Analog-holidays MAPE by series (24 holiday hours, %), and bias.**
 
 | Series | median MAPE | mean MAPE | mean bias (MW) |
 |---|---|---|---|
@@ -328,24 +329,24 @@ pair-sequences per region are provided as figures
 | PEN | 6.22 | 8.39 | −15 |
 | NES | 6.26 | 7.67 | +9 |
 | NTE | 7.12 | 7.46 | −82 |
-| **ALL** | **3.74** | **5.34** | +35 |
+| **All Regions** | **3.74** | **5.34** | +35 |
 
-### A. Comparison against same-holiday naive baselines
+### A. Comparison against seasonal naive baselines
 
-Table III compares the champion against the same-holiday baselines, by region difficulty and overall.
-The champion improves on every naive baseline overall (median 3.74% vs 5.00% for `persist1`), and the
+Table III compares An-holidays against the seasonal naive baselines, by region difficulty and overall.
+An-holidays improves on every naive baseline overall (median 3.74% vs 5.00% for `SeasonalNaive`), and the
 advantage is larger on the tractable series (2.88% vs 4.08%). Averaging more past instances degrades the
-naive (mean3/mean4) because of demand growth and the 2022 gap.
+naive (`AvgSeasonalNaive-3`/`AvgSeasonalNaive-4`) because of demand growth and the 2022 gap.
 
-**TABLE III. Champion vs same-holiday naive baselines (median MAPE, %).**
+**TABLE III. An-holidays vs seasonal naive and average seasonal naive baselines (median MAPE, %).**
 
-| group | n | champion | persist1 | mean2 | mean3 | mean4 |
+| group | n | An-holidays | SeasonalNaive | AvgSeasonalNaive-2 | AvgSeasonalNaive-3 | AvgSeasonalNaive-4 |
 |---|---|---|---|---|---|---|
-| ALL | 152 | **3.74** | 5.00 | 4.97 | 5.77 | 6.68 |
-| tractable (5) | 95 | **2.88** | 4.08 | 3.91 | 4.94 | 5.71 |
+| All Regions | 152 | **3.74** | 5.00 | 4.97 | 5.77 | 6.68 |
+| tractable (CEL/OCC/SIN/NOR/ORI) | 95 | **2.88** | 4.08 | 3.91 | 4.94 | 5.71 |
 | hard (NES/NTE/PEN) | 57 | 6.26 | 6.89 | 6.70 | 8.33 | 9.06 |
 
-Broken down by holiday, the champion wins on 8 of the 12 holidays—those that are shape-rich or have few
+Broken down by holiday, An-holidays wins on 8 of the 12 holidays—those that are shape-rich or have few
 own instances (New Year's Eve, Christmas Eve, Christmas Day, Maundy Thursday, Good Friday, Labour Day,
 New Year's Day, Revolution)—with large margins on the December–January and Easter-week transitions
 (e.g. New Year's Eve 2.68% vs 6.84% for the best naive; Christmas Eve 4.28% vs 7.28%). The naive wins on
@@ -362,7 +363,7 @@ approaches, which require a large number of event samples, holidays are scarce e
 method works precisely in low-data regimes, reducing the search space, avoiding massive training, and
 incurring a near-negligible computational cost.
 
-Three experimental findings shaped the champion. First, clustering by *observance* rather than by raw
+Three experimental findings shaped Analog-holidays. First, clustering by *observance* rather than by raw
 shape took the all-targets median MAPE from 4.50% to 3.76% and removed the under-prediction bias on
 weakly observed days. Second, a wider analogue pool (a 12-h instead of 24-h minimum separation between
 candidate events) was found to *hurt* the deep holidays, because the search then selects more,
@@ -371,31 +372,32 @@ ceiling of $k\le 6$ on the fully observed cluster clips the catastrophic cells w
 otherwise over-select analogues, with no collateral effect on the other clusters.
 
 The honest reading of the regional results is that part of the error in NES, NTE and PEN is an
-irreducible noise floor: these are small, weather-sensitive regions whose demand and observance vary
-strongly from year to year. The same-holiday benchmark refines this picture: for region NTE a simple
-same-holiday mean is more accurate than the analogue model, indicating a method weakness there rather
-than pure noise, whereas for PEN the analogue model adds substantial value over an otherwise very poor
-naive baseline.
+irreducible noise floor: these are weather-sensitive regions whose demand and observance vary
+strongly from year to year. The seasonal naive benchmark refines this picture: for region NTE a simple
+average seasonal naive profile is more accurate than the analogue model, indicating a method weakness
+there rather than pure noise, whereas for PEN the analogue model adds substantial value over an otherwise
+very poor naive baseline.
 
 ## VII. Conclusions
 
 We presented a holiday-conditioned adaptation of the Analogue method for day-ahead, hourly
 electricity-demand forecasting on Mexican public holidays. The method models the pre-holiday→holiday
-transition through conditioned pairs $(Z, Z')$, restricts the neighbour search to a curated, observance
--clustered set of holidays, tunes its hyper-parameters per target, and applies an a-posteriori intraday
-bias correction. On the seven control regions and the national aggregate of the Mexican system, the
-champion attains a median MAPE of 3.74% (2.88% on the tractable series) with negligible computation cost,
-and it outperforms same-holiday naive baselines on the shape-rich and few-instance holidays. The method
-offers higher accuracy in sparse-event regimes, low complexity, efficient training, robustness and
-interpretability, and its findings can be useful for ISOs and power-system operators.
+transition through conditioned pairs $(Z, Z')$, restricts the neighbour search to a curated,
+observance-clustered set of holidays, tunes its hyper-parameters per target, and applies an
+a-posteriori intraday bias correction. On the seven control regions and the national aggregate of the Mexican system,
+Analog-holidays attains a median MAPE of 3.74% (2.88% on the tractable series) with negligible
+computation cost, and it outperforms seasonal naive baselines on the shape-rich and few-instance
+holidays. The method offers higher accuracy in sparse-event regimes, low complexity, efficient training,
+robustness and interpretability, and its findings can be useful for ISOs such as CENACE and power-system
+operators.
 
 ### Future work
 
-The comparison reported here is against same-holiday naive baselines; a broader benchmark against
+The comparison reported here is against seasonal naive baselines; a broader benchmark against
 calendar-aware ML and deep-learning models and against foundation time-series models is planned. The
 benchmark also motivates a per-holiday *hybrid* that routes stable civic holidays (and region NTE) to a
-same-holiday seasonal mean and the remaining holidays to the analogue model; such a rule must be
-validated on held-out years before being adopted. A further direction is a rule-based or learned analogue
+same-holiday average seasonal naive profile and the remaining holidays to the analogue model; such a rule
+must be validated on held-out years before being adopted. A further direction is a rule-based or learned analogue
 *selector* that chooses the neighbour subset not only by shape or distance but by calendar context
 (weekday/Saturday/Sunday incidence, H1/H2/H3 type, whether the holiday follows another holiday, the
 season, and whether it is fixed or shifted to Monday by the 2006 Mexican law). Finally, holidays not only
@@ -422,7 +424,7 @@ present and the historical patterns and to relate it to the subsequent observed 
 
 ## Data and code availability
 
-Code: `https://github.com/urieliram/analog_holidays`. The champion configuration, the experiment log and
+Code: `https://github.com/urieliram/analog_holidays`. The Analog-holidays configuration, the experiment log and
 the reproducible drivers are under `experiments/`; the technical specification and the seasonal-naive
 benchmark are in `docs/champion_analog_holiday.md` and `docs/seasonal_naive_benchmark.md`.
 
@@ -444,8 +446,9 @@ method," *Int. Trans. Electr. Energy Syst.*, vol. 23, no. 8, pp. 1254–1271, 20
 Modern Power Syst. Clean Energy*, 2019. [Online]. Available:
 https://doi.org/10.1007/s40565-018-0385-5
 
-[4] M. Cecenas-Falcon and U. I. Lezama-Lope, "Application of shape functions to the calculation of an
-annual electricity demand forecast," *[complete venue/year]*.
+[4] M. Borunda, L. Conde-López, G. Ruiz-Chavarría, G. Lopez Lopez, V. M. Alvarado, and E. de J. Carrera
+Avendaño, "Advances in Similar Day Methods for Short-Term Load Forecasting for Power Systems,"
+*Forecasting*, vol. 8, no. 2, art. 32, 2026.
 
 [5] J. D. López González, "Modelización de los días festivos en la predicción de demanda de energía
 eléctrica," B.S. thesis, Univ. Politécnica de Madrid, Madrid, Spain. [Online]. Available:

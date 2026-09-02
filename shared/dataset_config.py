@@ -6,6 +6,7 @@ datasets without editing paths or region lists in multiple files.
 from __future__ import annotations
 
 import csv
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,7 +25,7 @@ class DatasetConfig:
     default_regions: tuple[str, ...] = ()
 
 
-ACTIVE_DATASET = "mx"
+ACTIVE_DATASET = os.environ.get("ANALOG_HOLIDAYS_DATASET", "mx")
 
 
 _DATASET_CONFIGS: dict[str, DatasetConfig] = {
@@ -52,6 +53,25 @@ _DATASET_CONFIGS: dict[str, DatasetConfig] = {
         demand_path=PROJ_ROOT / "data" / "demand_us.csv",
         notebook_holidays_path=PROJ_ROOT / "analog_holidays" / "holidays_us_recognized.json",
         audit_holidays_path=PROJ_ROOT / "data" / "holidays_us.json",
+    ),
+    "ercot": DatasetConfig(
+        key="ercot",
+        display_name="ERCOT / Texas",
+        demand_path=PROJ_ROOT / "analog_holidays" / "holidays" / "holiday_demand_ercot.csv",
+        notebook_holidays_path=PROJ_ROOT / "analog_holidays" / "docs" / "ercot_holidays.json",
+        audit_holidays_path=PROJ_ROOT / "analog_holidays" / "docs" / "ercot_holidays.json",
+        region_prefix="ERCOT_demand_",
+        default_regions=(
+            "ERCOT_demand_COAST",
+            "ERCOT_demand_EAST",
+            "ERCOT_demand_FWEST",
+            "ERCOT_demand_NORTH",
+            "ERCOT_demand_NCENT",
+            "ERCOT_demand_SOUTH",
+            "ERCOT_demand_SCENT",
+            "ERCOT_demand_WEST",
+            "ERCOT_demand_ERCOT",
+        ),
     ),
 }
 

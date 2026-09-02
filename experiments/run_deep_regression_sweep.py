@@ -173,6 +173,86 @@ def _apply_hourly_factor_model(forecast_profile, factor_model, expected_hours):
     return adjusted.astype(np.float64), forecast_window_mean
 
 
+def _head_anchor_factors(head_actual, head_forecast):
+    """Level-anchor multipliers read off the observed pre-holiday hours.
+
+    The forecast level is pinned to the pre-holiday level by the regression
+    intercept, so whatever bias the head carries propagates into the holiday
+    block ~1:1 (measured slope 1.014, r=0.675). Rescaling the holiday profile by
+    the head's own miss is therefore a zero-parameter level correction.
+
+    Two estimators, both parameter-free: ``mpe`` averages the hourly percentage
+    misses, ``ratio`` compares the window means (less sensitive to a single
+    low-demand hour blowing up its own percentage).
+    """
+    head_actual = np.asarray(head_actual, dtype=np.float64)
+    head_forecast = np.asarray(head_forecast, dtype=np.float64)
+
+    mpe_pct = _mean_pct_error(head_actual, head_forecast)
+    mpe_factor = 1.0 + mpe_pct / 100.0 if np.isfinite(mpe_pct) else 1.0
+
+    fmean = float(np.mean(head_forecast))
+    amean = float(np.mean(head_actual))
+    ratio_factor = amean / fmean if np.isfinite(fmean) and abs(fmean) > 1e-9 else 1.0
+
+    # A head that misses by more than half is a broken fold, not a level offset.
+    clip = lambda f: float(np.clip(f, 0.5, 1.5))  # noqa: E731
+    return clip(mpe_factor), clip(ratio_factor)
+
+
+def _ex_ante_level_factors(run, forecast_profile, season_length, head_hours):
+    """Level corrections built ONLY from data observed at issue time.
+
+    The head anchor above is not operational here: the forecast is issued on the
+    morning of D-1 and feeds price-setting, generation planning and dispatch, so
+    the pre-holiday evening it measures has not happened yet and re-anchoring
+    later is useless. These two factors instead use `hourly_series`, which is the
+    training history truncated exactly at issue time.
+
+    ``level``  compares the target's own last 38 h against the same window before
+               each analog's holiday — is the system running hotter or colder now
+               than the analogs were running just before their holidays?
+    ``drop``   is the ratio estimand outright: take the observed current level and
+               apply the analogs' own holiday-to-pre-holiday drop, then rescale the
+               model's holiday block to that level, keeping its shape.
+    """
+    serie = np.asarray(getattr(run, "hourly_series", []), dtype=np.float64)
+    positions = list(getattr(run, "positions", []) or [])
+    if serie.size < season_length or not positions:
+        return 1.0, 1.0
+
+    target_recent = serie[-season_length:]
+    t_mean = float(np.mean(target_recent))
+    if not np.isfinite(t_mean) or abs(t_mean) < 1e-9:
+        return 1.0, 1.0
+
+    pre_means, drop_ratios = [], []
+    for pos in positions:
+        x = serie[pos:pos + season_length]
+        x2 = serie[pos + season_length:pos + 2 * season_length]
+        if x.size < season_length or x2.size < season_length:
+            continue
+        xm, x2m = float(np.mean(x)), float(np.mean(x2))
+        if not (np.isfinite(xm) and np.isfinite(x2m)) or abs(xm) < 1e-9:
+            continue
+        pre_means.append(xm)
+        drop_ratios.append(x2m / xm)
+
+    if not pre_means:
+        return 1.0, 1.0
+
+    clip = lambda f: float(np.clip(f, 0.5, 1.5)) if np.isfinite(f) else 1.0  # noqa: E731
+
+    level_factor = t_mean / float(np.mean(pre_means))
+
+    holiday_fc = np.asarray(forecast_profile, dtype=np.float64)[head_hours:]
+    fc_mean = float(np.mean(holiday_fc))
+    implied_level = t_mean * float(np.median(drop_ratios))
+    drop_factor = implied_level / fc_mean if abs(fc_mean) > 1e-9 else 1.0
+
+    return clip(level_factor), clip(drop_factor)
+
+
 def _enrich_panel_metrics(rolling_daily_table, rolling_runs):
     """Notebook In[8] core: bias-adjustment + per-band (14/24/38) panel metrics."""
     bias_rows = []
@@ -204,6 +284,19 @@ def _enrich_panel_metrics(rolling_daily_table, rolling_runs):
             m24a = _build_window_metrics(tail_actual, adj_tail, "24_bias_adjusted")
             m38a = _build_window_metrics(full_actual, adjusted_full_forecast, "38_bias_adjusted")
 
+            # Level anchoring off the observed head. Unlike the hourly bias factor
+            # (mean-preserving by construction) this moves the daily level, which is
+            # where ~89% of the error lives.
+            mpe_factor, ratio_factor = _head_anchor_factors(head_actual, head_forecast)
+            m24h = _build_window_metrics(tail_actual, tail_forecast * mpe_factor, "24_head_anchored")
+            m24r = _build_window_metrics(tail_actual, tail_forecast * ratio_factor, "24_head_ratio")
+
+            level_factor, drop_factor = _ex_ante_level_factors(
+                run, full_forecast, SEASON_LENGTH, BIAS_HEAD_HOURS
+            )
+            m24l = _build_window_metrics(tail_actual, tail_forecast * level_factor, "24_exante_level")
+            m24d = _build_window_metrics(tail_actual, tail_forecast * drop_factor, "24_exante_drop")
+
             bias_rows.append({
                 "unique_id": unique_id,
                 "target_date": target_date,
@@ -216,7 +309,11 @@ def _enrich_panel_metrics(rolling_daily_table, rolling_runs):
                 "hourly_factor_mean_abs": factor_model["factor_mean_abs"],
                 "forecast_window_mean_38": fwm38,
                 "forecast_daily_mean_24": float(np.mean(tail_forecast)),
-                **m38, **m14, **m24, **m14a, **m24a, **m38a,
+                **m38, **m14, **m24, **m14a, **m24a, **m38a, **m24h, **m24r, **m24l, **m24d,
+                "head_anchor_factor_mpe": mpe_factor,
+                "head_anchor_factor_ratio": ratio_factor,
+                "exante_level_factor": level_factor,
+                "exante_drop_factor": drop_factor,
                 "head_bias_mean": m14["bias_14"],
                 "tail_bias_mean": m24["bias_24"],
                 "bias_model_method": factor_model["method"],
