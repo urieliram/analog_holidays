@@ -1,0 +1,101 @@
+id: experiment_2026_08_31_06_38_ercot_criterion_holiday_identity
+created: '2026-08-31T06:38:52'
+provenance:
+  git_commit: 6d8e3f4d0a3473eb1da69aec6cd4a10af45c86fe
+  git_branch: analog_holiday_H1_H2_H3
+  git_dirty: true
+scope:
+  unique_ids:
+  - ERCOT_demand_COAST
+  - ERCOT_demand_EAST
+  - ERCOT_demand_ERCOT
+  - ERCOT_demand_FWEST
+  - ERCOT_demand_NCENT
+  - ERCOT_demand_NORTH
+  - ERCOT_demand_SCENT
+  - ERCOT_demand_SOUTH
+  - ERCOT_demand_WEST
+  n_series: 9
+  n_metric_rows: 171
+  target_dates:
+  - '2025-01-01'
+  - '2025-01-20'
+  - '2025-02-17'
+  - '2025-03-02'
+  - '2025-04-21'
+  - '2025-05-26'
+  - '2025-06-19'
+  - '2025-07-04'
+  - '2025-08-27'
+  - '2025-09-01'
+  - '2025-11-11'
+  - '2025-11-27'
+  - '2025-11-28'
+  - '2025-12-24'
+  - '2025-12-25'
+  - '2026-01-01'
+  - '2026-01-19'
+  - '2026-02-16'
+  - '2026-03-02'
+  primary_metric: mape_24h_pct
+config:
+  window:
+    season_length: 38
+    forecast_start_offset_hours: 14
+    special_labels:
+    - holiday
+  cluster:
+    use_cluster: true
+    match_target_cluster: true
+    cluster_column: analog_cluster
+  analog_selection:
+    typedist: pearson
+    k: null
+    min_special_points: 24
+    min_event_gap: 24
+    max_events: null
+    recent_weekend_analogs: 0
+  regression:
+    typereg: PCR
+    scale_method: null
+    n_components: 2
+    regressor_params: {}
+    levels:
+    - 50
+    - 80
+    - 95
+  tuning:
+    optuna_min_k: 2
+    optuna_min_k_by_cluster:
+      F: 2
+      G: 2
+      H: 2
+    optuna_max_k_by_cluster: {}
+    n_trials: 25
+    timeout_sec: 300
+    typedist_choices:
+    - pearson
+    - euclidian
+    typereg_choices:
+    - PCR
+    - PLS
+    - RidgeReg
+    - LassoReg
+    scale_method_choices:
+    - null
+    - standard
+    - minmax
+    max_eval_dates: 19
+  training_cutoff: rolling
+  history_start: null
+  source_path: /home/uriel/GIT/analog_holidays/holidays/working/holiday_demand_ercot_20260831_061333.csv
+  experiment_family: ercot_replication
+  dataset: ercot
+  analog_cluster_criterion: holiday_identity
+  selector_features_path: /home/uriel/GIT/analog_holidays/experiments/selectors/selector_ercot_holiday_identity.csv
+  note: replicación ERCOT del panel MX, todos los arreglos activos, sin cap de k
+outputs:
+  metrics_csv: metrics.csv
+  summary_csv: summary.csv
+  plots: []
+  notes: notes.md

@@ -228,6 +228,11 @@ resume/
 # run. Reproducible from the source CSVs in holidays/, so they stay out of git.
 holidays/working/
 
+# Experiment plots. A single batch_pair_sequences PNG runs to ~4 MB and the
+# figures redraw from the metrics.csv kept alongside them, so only the numbers
+# are versioned.
+experiments/**/plots/
+
 # Large data files (removed from git history)
 *.json
 !docs/ercot_holidays.json

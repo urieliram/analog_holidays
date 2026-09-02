@@ -1,0 +1,100 @@
+id: experiment_2026_08_25_00_38_criterion_observance_tier_depth
+created: '2026-08-25T00:38:10'
+provenance:
+  git_commit: 6d8e3f4d0a3473eb1da69aec6cd4a10af45c86fe
+  git_branch: analog_holiday_H1_H2_H3
+  git_dirty: true
+scope:
+  unique_ids:
+  - SEN_demand_CEL
+  - SEN_demand_NES
+  - SEN_demand_NOR
+  - SEN_demand_NTE
+  - SEN_demand_OCC
+  - SEN_demand_ORI
+  - SEN_demand_PEN
+  - SEN_demand_SIN
+  n_series: 8
+  n_metric_rows: 152
+  target_dates:
+  - '2025-01-01'
+  - '2025-02-03'
+  - '2025-03-17'
+  - '2025-04-17'
+  - '2025-04-18'
+  - '2025-04-19'
+  - '2025-05-01'
+  - '2025-09-16'
+  - '2025-11-17'
+  - '2025-12-24'
+  - '2025-12-25'
+  - '2025-12-31'
+  - '2026-01-01'
+  - '2026-02-02'
+  - '2026-03-16'
+  - '2026-04-02'
+  - '2026-04-03'
+  - '2026-04-04'
+  - '2026-05-01'
+  primary_metric: mape_24h_pct
+config:
+  window:
+    season_length: 38
+    forecast_start_offset_hours: 14
+    special_labels:
+    - holiday
+  cluster:
+    use_cluster: true
+    match_target_cluster: true
+    cluster_column: analog_cluster
+  analog_selection:
+    typedist: pearson
+    k: null
+    min_special_points: 24
+    min_event_gap: 24
+    max_events: null
+    recent_weekend_analogs: 0
+  regression:
+    typereg: PCR
+    scale_method: null
+    n_components: 2
+    regressor_params: {}
+    levels:
+    - 50
+    - 80
+    - 95
+  tuning:
+    optuna_min_k: 2
+    optuna_min_k_by_cluster:
+      F: 2
+      G: 2
+      H: 2
+    optuna_max_k_by_cluster: {}
+    n_trials: 25
+    timeout_sec: 300
+    typedist_choices:
+    - pearson
+    - euclidian
+    typereg_choices:
+    - PCR
+    - PLS
+    - RidgeReg
+    - LassoReg
+    scale_method_choices:
+    - null
+    - standard
+    - minmax
+    max_eval_dates: 19
+  training_cutoff: rolling
+  history_start: null
+  source_path: /home/uriel/GIT/analog_holidays/holidays/working/holiday_demand_mx_20260825_001523.csv
+  experiment_family: cluster_criterion_sweep_postfix
+  target_dates_var: TARGET_DATES_2025 (19, 2025-2026)
+  analog_cluster_criterion: observance_tier_depth
+  selector_features_path: /tmp/claude-1000/-home-uriel-GIT-analog-holidays/a1e33449-dcaa-4960-9e3d-eb3aaea627f2/scratchpad/selectors/selector_observance_tier_depth.csv
+  note: criterion sweep re-run with all bug fixes active; no per-cluster k cap
+outputs:
+  metrics_csv: metrics.csv
+  summary_csv: summary.csv
+  plots: []
+  notes: notes.md
