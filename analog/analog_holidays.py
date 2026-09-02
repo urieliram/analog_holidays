@@ -213,6 +213,10 @@ def fit_hourly_bias_factor_model(
     }
 
 
+# Regressors whose penalty strength is meaningless until it is scaled to the data.
+_PENALIZED_LINEAR_REGRESSORS = frozenset({"RidgeReg", "LassoReg"})
+
+
 def _suggest_optuna_regressor_params(trial, typereg: str) -> dict[str, object]:
     if typereg == "RF":
         return {
@@ -229,6 +233,17 @@ def _suggest_optuna_regressor_params(trial, typereg: str) -> dict[str, object]:
             "learning_rate": float(trial.suggest_categorical("lgbm_learning_rate", [0.03, 0.05, 0.1])),
             "num_leaves": int(trial.suggest_categorical("lgbm_num_leaves", [15, 31, 63])),
             "min_child_samples": int(trial.suggest_categorical("lgbm_min_child_samples", [10, 20, 30])),
+        }
+
+    if typereg in _PENALIZED_LINEAR_REGRESSORS:
+        # These regressors standardize their predictors internally, so alpha is on a
+        # scale-free footing and this range spans "essentially OLS" to "heavily
+        # shrunk". Leaving it unsearched pinned them to a penalty that raw-MW inputs
+        # made numerically indistinguishable from plain OLS.
+        return {
+            "alpha": float(
+                trial.suggest_float(f"{typereg.lower()}_alpha", 1e-3, 1e3, log=True)
+            ),
         }
 
     return {}
@@ -744,6 +759,8 @@ def _count_realizable_analog_positions(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=len(HOUR_COLS),
+        seam_positions=_calendar_seam_positions(train_df),
     )
     if analog_count < 1:
         raise ValueError(
@@ -925,6 +942,8 @@ def run_analog_holidays(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=len(HOUR_COLS),
+        seam_positions=_calendar_seam_positions(train_df),
     )
     model.fit(y=hourly_series, special_days=special_day_hourly_mask)
     result = model.predict(h=season_length, level=levels)
@@ -946,6 +965,8 @@ def run_analog_holidays(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=len(HOUR_COLS),
+        seam_positions=_calendar_seam_positions(train_df),
     )
 
     selected_days_df = build_selected_days_table(
@@ -1214,6 +1235,13 @@ def tune_analog_holidays_optuna(
     # provided -- e.g. a per-cluster cap so deep holidays cannot over-select analogs).
     _resolved_max_k = min(final_target_analog_cap, min(eligible_k_caps), 24)
     if optuna_max_k is not None:
+        # An explicit ceiling below the floor is a contradictory request: silently
+        # widening it back up to optuna_min_k would discard a deliberate cap.
+        if int(optuna_max_k) < optuna_min_k:
+            raise ValueError(
+                f"optuna_max_k={int(optuna_max_k)} is below optuna_min_k={optuna_min_k}; "
+                "the k search range would be empty."
+            )
         _resolved_max_k = min(_resolved_max_k, int(optuna_max_k))
     optuna_max_k = max(_resolved_max_k, optuna_min_k)
 
@@ -1309,6 +1337,7 @@ def tune_analog_holidays_optuna(
         trial.set_user_attr("mean_mape_pct", mean_mape)
         trial.set_user_attr("fail_rate", fail_rate)
         trial.set_user_attr("regressor_params", regressor_params)
+        trial.set_user_attr("scale_method", resolved_scale_method)
         return mean_mae + fail_rate * 1000.0
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -1324,7 +1353,13 @@ def tune_analog_holidays_optuna(
 
     best_trial = study.best_trial
     best_params = study.best_params.copy()
-    best_scale_method = _normalize_scale_method(best_params.get("scale_method", scale_method))
+    # The winning scale_method is read back from the trial's user attrs (like
+    # regressor_params) because that records the resolved value, whereas
+    # best_params only holds it when the search space actually offered a choice.
+    if "scale_method" in best_trial.user_attrs:
+        best_scale_method = _normalize_scale_method(best_trial.user_attrs["scale_method"])
+    else:
+        best_scale_method = _normalize_scale_method(best_params.get("scale_method", scale_method))
     best_config = {
         "k": int(best_params["k"]),
         "k_range": (int(optuna_min_k), int(optuna_max_k)),
@@ -2505,6 +2540,30 @@ def _get_region_df(df: pd.DataFrame, unique_id: str) -> pd.DataFrame:
     return df_region.sort_values("date").reset_index(drop=True)
 
 
+def _calendar_seam_indices(df_region: pd.DataFrame) -> np.ndarray:
+    """Return row indices where the calendar jumps over one or more days.
+
+    Excluded stretches (COVID-era days are dropped on purpose) are legitimate,
+    but flattening still concatenates the days on either side, so the seam has
+    to be visible to anything that slices windows across it. The cheap O(1) span
+    check keeps the common contiguous case free.
+    """
+    dates = df_region["date"]
+    if dates.empty:
+        return np.empty(0, dtype=np.int64)
+
+    if (dates.iloc[-1] - dates.iloc[0]).days + 1 == len(dates):
+        return np.empty(0, dtype=np.int64)
+
+    deltas = dates.diff().to_numpy()
+    return np.flatnonzero(deltas > np.timedelta64(1, "D")).astype(np.int64)
+
+
+def _calendar_seam_positions(df_region: pd.DataFrame) -> np.ndarray:
+    """Seam locations expressed as hourly offsets into the flattened series."""
+    return _calendar_seam_indices(df_region) * len(HOUR_COLS)
+
+
 def _flatten_daily_profiles(df_region: pd.DataFrame) -> np.ndarray:
     return df_region[HOUR_COLS].to_numpy(dtype=np.float64).reshape(-1)
 
@@ -2602,6 +2661,8 @@ def _evaluate_analog_holiday_fold(
         min_event_gap=min_event_gap,
         max_events=max_events,
         dtw_window=dtw_window,
+        phase_period=len(HOUR_COLS),
+        seam_positions=_calendar_seam_positions(train_df),
     )
     prediction, _, _, fail, positions = model.predict_single(
         y=hourly_series,

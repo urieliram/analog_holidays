@@ -50,14 +50,17 @@ def main():
     dirs = {"control": CONTROL_DIR}
     for cap, slug in RUNS:
         base.OPTUNA_MAX_K_BY_CLUSTER = cap
-        name, med, mean, picks = base.run_variant(
-            SEARCH, slug, target_items=FULL_TARGETS, min_event_gap=24,
-            config_extra={"experiment_family": "kcap_by_cluster",
-                          "target_dates_var": "TARGET_DATES_2025 (19, 2025-2026)",
-                          "baseline_compare": f"{CONTROL_DIR} (no cap; ALL 3.810%, deep 3.605%)",
-                          "optuna_max_k_by_cluster": dict(cap)},
-        )
-        base.OPTUNA_MAX_K_BY_CLUSTER = {}
+        try:
+            name, med, mean, picks = base.run_variant(
+                SEARCH, slug, target_items=FULL_TARGETS, min_event_gap=24,
+                config_extra={"experiment_family": "kcap_by_cluster",
+                              "target_dates_var": "TARGET_DATES_2025 (19, 2025-2026)",
+                              "baseline_compare": f"{CONTROL_DIR} (no cap; ALL 3.810%, deep 3.605%)",
+                              "optuna_max_k_by_cluster": dict(cap)},
+            )
+        finally:
+            # Reset even on failure; a leaked cap would silently apply to later variants.
+            base.OPTUNA_MAX_K_BY_CLUSTER = {}
         dirs[slug] = name
         print(f">>> {slug} cap={cap}: median mape_24={med:.3f}% mean={mean:.3f}% -> {name}", flush=True)
 

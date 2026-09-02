@@ -32,6 +32,8 @@ from analog_holidays.shared.identify_holidays import load_selector_cluster_looku
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+# Hourly series: analog windows must line up on the same hour of day.
+HOURS_PER_DAY = 24
 DEFAULT_SOURCE_PATH = PACKAGE_ROOT / "holidays" / "pre_holiday_demand_mx.csv"
 DEFAULT_SELECTOR_FEATURES_PATH = PACKAGE_ROOT / "holidays" / "holiday_selector_features.csv"
 
@@ -316,6 +318,7 @@ def run_analog_pre_holiday(
         min_special_points=effective_min_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=HOURS_PER_DAY,
     )
     model.fit(y=history, special_days=pre_holiday_mask)
     result = model.predict(h=previously_w_hours)
@@ -674,6 +677,7 @@ def tune_analog_pre_holidays_optuna(
             typedist=typedist,
             typereg=typereg,
             min_special_points=previously_w_hours,
+            phase_period=HOURS_PER_DAY,
         )
         model.fit(history, special_days=pre_holiday_mask)
         pred = np.asarray(
@@ -990,6 +994,7 @@ def run_holiday_day(
         min_special_points=effective_min_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=HOURS_PER_DAY,
     )
     model.fit(y=history, special_days=holiday_mask)
     result = model.predict(h=season_length)

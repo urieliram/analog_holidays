@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import time
 import warnings
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -46,6 +46,10 @@ try:
     from .analog import _REGRESSORS
 except ImportError:
     from analog import _REGRESSORS
+
+
+# Hourly series: analog windows must line up on the same hour of day.
+_HOURS_PER_DAY = 24
 
 
 def _coerce_special_days(values, expected_len: Optional[int] = None) -> np.ndarray:
@@ -92,8 +96,20 @@ def _select_special_positions(
     min_special_points: Optional[int],
     min_event_gap: Optional[int],
     max_events: Optional[int],
+    phase_period: Optional[int] = None,
+    seam_positions: Optional[Sequence[int]] = None,
 ) -> List[int]:
-    """Select historical positions whose future block is flagged as special."""
+    """Select historical positions whose future block is flagged as special.
+
+    ``phase_period`` is the natural cycle of the series (24 for hourly data).
+    When given, candidates must start at the same offset within that cycle as
+    the target block; callers that know their data's period should pass it.
+
+    ``seam_positions`` marks indices where the series splices non-adjacent
+    periods together (e.g. a deliberately excluded year). Candidate windows that
+    span a seam would pair a context block with an outcome block from a
+    different epoch, so they are dropped.
+    """
     history_len = len(special_days)
     if history_len < 2 * vsele + 1:
         return []
@@ -109,6 +125,26 @@ def _select_special_positions(
 
     window_scores = future_windows.sum(axis=1)
     candidate_positions = np.where(window_scores >= threshold)[0].tolist()
+
+    # Keep only candidates whose special block starts at the same point in the cycle
+    # as the target's. Nothing else here constrains phase, so a min_event_gap that is
+    # not a whole number of cycles would otherwise admit shifted windows that align,
+    # say, 22:00 against 10:00. The target block begins right after the history.
+    if phase_period:
+        period = int(phase_period)
+        target_phase = history_len % period
+        candidate_positions = [
+            pos for pos in candidate_positions if (pos + vsele) % period == target_phase
+        ]
+
+    if seam_positions is not None and len(seam_positions):
+        seams = np.asarray(sorted(int(s) for s in seam_positions))
+        span = 2 * vsele
+        candidate_positions = [
+            pos
+            for pos in candidate_positions
+            if not np.any((seams > pos) & (seams < pos + span))
+        ]
 
     gap = vsele if min_event_gap is None else max(1, int(min_event_gap))
     positions: List[int] = []
@@ -134,6 +170,8 @@ def count_special_day_candidates(
     min_special_points: Optional[int] = None,
     min_event_gap: Optional[int] = None,
     max_events: Optional[int] = None,
+    phase_period: Optional[int] = None,
+    seam_positions: Optional[Sequence[int]] = None,
 ) -> int:
     """Count realizable special-day candidate windows before k-ranking."""
     return len(
@@ -144,6 +182,8 @@ def count_special_day_candidates(
             min_special_points=min_special_points,
             min_event_gap=min_event_gap,
             max_events=max_events,
+            phase_period=phase_period,
+            seam_positions=seam_positions,
         )
     )
 
@@ -326,6 +366,8 @@ def analog_special_days_core(
     max_events: Optional[int] = None,
     dtw_window: Optional[float] = None,
     scale_method: Optional[str] = None,
+    phase_period: Optional[int] = None,
+    seam_positions: Optional[Sequence[int]] = None,
 ) -> Tuple[np.ndarray, float, float, bool, List[int], np.ndarray]:
     """
     Analog forecast using preselected special days.
@@ -406,6 +448,8 @@ def analog_special_days_core(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=phase_period,
+        seam_positions=seam_positions,
     )
     positions = _select_k_similar_positions(
         serie=history_serie_scaled,
@@ -563,6 +607,8 @@ class AnalogSpecialDays:
         max_events: Optional[int] = None,
         alias: Optional[str] = None,
         dtw_window: Optional[float] = None,
+        phase_period: Optional[int] = None,
+        seam_positions: Optional[Sequence[int]] = None,
     ):
         self.season_length = season_length
         self.k = k
@@ -577,6 +623,8 @@ class AnalogSpecialDays:
         self.max_events = max_events
         self.alias = alias or 'AnalogSpecialDays'
         self.dtw_window = dtw_window
+        self.phase_period = phase_period
+        self.seam_positions = seam_positions
 
         self._y: Optional[np.ndarray] = None
         self._special_days: Optional[np.ndarray] = None
@@ -658,6 +706,8 @@ class AnalogSpecialDays:
                 special_day_value=self.special_day_value,
                 min_special_points=self.min_special_points,
                 min_event_gap=self.min_event_gap,
+                phase_period=self.phase_period,
+                seam_positions=self.seam_positions,
                 max_events=self.max_events,
                 dtw_window=self.dtw_window,
             )
@@ -730,6 +780,8 @@ class AnalogSpecialDays:
             min_event_gap=self.min_event_gap,
             max_events=self.max_events,
             dtw_window=self.dtw_window,
+            phase_period=self.phase_period,
+            seam_positions=self.seam_positions,
         )
         return res[:5]
 
@@ -748,6 +800,8 @@ class AnalogSpecialDays:
             'max_events': self.max_events,
             'alias': self.alias,
             'dtw_window': self.dtw_window,
+            'phase_period': self.phase_period,
+            'seam_positions': self.seam_positions,
         }
 
     def set_params(self, **params) -> 'AnalogSpecialDays':

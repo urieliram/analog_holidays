@@ -517,6 +517,7 @@ class AnalogPackageSmokeTests(unittest.TestCase):
                 "best_matching_weekday",
                 "observance_tier",
                 "observance_tier_depth",
+                "holiday_identity",
             },
         )
 

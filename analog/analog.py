@@ -55,6 +55,7 @@ from sklearn.linear_model import (
     Ridge,
 )
 from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 try:
     from lightgbm import LGBMRegressor
@@ -109,6 +110,20 @@ def _merge_regressor_params(
 def _fit_predict(ModelClass, X, Y, X2, regressor_params: Optional[Mapping[str, object]] = None, **kwargs):
     """Ajusta un regresor sklearn genérico y devuelve la predicción."""
     model = ModelClass(**_merge_regressor_params(kwargs, regressor_params))
+    model.fit(X, Y)
+    return model.predict(X2)
+
+
+def _fit_predict_penalized(ModelClass, X, Y, X2, regressor_params=None, **kwargs):
+    """Fit a penalized linear model on standardized predictors.
+
+    The analog blocks arrive as raw MW (~1e4), where a penalty expressed in the
+    raw units is swamped by the scale of X'X and the model collapses onto plain
+    OLS. Standardizing inside the estimator makes ``alpha`` mean the same thing
+    regardless of the units the caller passes in.
+    """
+    params = _merge_regressor_params(kwargs, regressor_params)
+    model = make_pipeline(StandardScaler(), ModelClass(**params))
     model.fit(X, Y)
     return model.predict(X2)
 
@@ -172,20 +187,18 @@ _REGRESSORS = {
         LinearRegression, X, Y, X2, regressor_params=rp),
     'BayesRidge': lambda X, Y, X2, nc, rp=None: _fit_predict(
         BayesianRidge, X, Y, X2, regressor_params=rp, compute_score=True),
-    'LassoReg': lambda X, Y, X2, nc, rp=None: _fit_predict(
-        Lasso, X, Y, X2, regressor_params=rp, alpha=0.1, max_iter=10000),
-    'RidgeReg': lambda X, Y, X2, nc, rp=None: _fit_predict(
-        Ridge, X, Y, X2, regressor_params=rp, alpha=0.1),
+    'LassoReg': lambda X, Y, X2, nc, rp=None: _fit_predict_penalized(
+        Lasso, X, Y, X2, regressor_params=rp, alpha=1.0, max_iter=10000),
+    'RidgeReg': lambda X, Y, X2, nc, rp=None: _fit_predict_penalized(
+        Ridge, X, Y, X2, regressor_params=rp, alpha=1.0),
     'PLS': lambda X, Y, X2, nc, rp=None: (
         (lambda X_, Y_, X2_, nc_:
             (lambda Xarr, Yarr:
                 PLSRegression(
-                    n_components=min(
-                        nc_,
-                        Xarr.shape[0],
-                        Xarr.shape[1],
-                        Yarr.shape[1] if Yarr.ndim > 1 else 1
-                    )
+                    # Bound by the predictor block only. Bounding by the number of
+                    # response columns pinned n_components to 1 for the 1-D Y used
+                    # here, which silently disabled the tuned value.
+                    n_components=max(1, min(nc_, Xarr.shape[0], Xarr.shape[1]))
                 ).fit(Xarr, Yarr).predict(X2_).flatten()
             )(np.asarray(X_), np.asarray(Y_))
         )(X, Y, X2, nc)

@@ -39,15 +39,18 @@ SEARCH = ["PCR", "PLS", "RidgeReg", "LassoReg"]
 def main():
     base.OPTUNA_MAX_K_BY_CLUSTER = {"H": 6}  # production
     print("Full plotted production run | cap H<=6 | 8 series x 19 dates", flush=True)
-    name, med, mean, picks = base.run_variant(
-        SEARCH, "production_cap_H6_plotted", target_items=FULL_TARGETS, min_event_gap=24,
-        make_plots=True,
-        config_extra={"experiment_family": "production_plotted",
-                      "target_dates_var": "TARGET_DATES_2025 (19, 2025-2026)",
-                      "optuna_max_k_by_cluster": {"H": 6},
-                      "note": "production config; figures = inference grids + pair sequences per region"},
-    )
-    base.OPTUNA_MAX_K_BY_CLUSTER = {}
+    try:
+        name, med, mean, picks = base.run_variant(
+            SEARCH, "production_cap_H6_plotted", target_items=FULL_TARGETS, min_event_gap=24,
+            make_plots=True,
+            config_extra={"experiment_family": "production_plotted",
+                          "target_dates_var": "TARGET_DATES_2025 (19, 2025-2026)",
+                          "optuna_max_k_by_cluster": {"H": 6},
+                          "note": "production config; figures = inference grids + pair sequences per region"},
+        )
+    finally:
+        # Reset even on failure; a leaked cap would silently apply to later runs.
+        base.OPTUNA_MAX_K_BY_CLUSTER = {}
     exp_dir = Path(__file__).resolve().parent / name
     print(f"\n>>> registered {name} | median mape_24={med:.3f}% mean={mean:.3f}% | picks={picks}", flush=True)
     print(f">>> plots in: {exp_dir / 'plots'}", flush=True)
