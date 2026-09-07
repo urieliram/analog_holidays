@@ -29,6 +29,13 @@ Contra el naive por fecha de calendario, skill **+0.561**.
 > requiere observar la tarde-noche del día previo, que no ha ocurrido cuando se emite el
 > pronóstico. Se documenta sólo como cota superior. Ver §8.
 
+> ✅ **Actualización 2026-09-02.** El techo de este documento sigue en pie: 3.789 % es lo máximo
+> alcanzable sin variables exógenas. Lo que cambió es que **la variable exógena que falta ya está
+> identificada y medida**: la anomalía de grados-día explica 18–25 % de la varianza del sesgo de
+> nivel, contra 0.4 % de todo el espacio de configuraciones del método, y **sobrevive a la
+> restricción operativa** (89 % de la señal se conserva usando pronóstico de temperatura de D−1,
+> no observación). Ver §8.5, que dejó de ser una conjetura y pasó a ser un resultado.
+
 ---
 
 ## 1. Datos de entrada
@@ -276,18 +283,21 @@ cd /home/uriel/GIT && MPLBACKEND=Agg python3 run_criterion.py holiday_identity
 
 ---
 
-## 6. Los cinco arreglos de código — **imprescindibles**
+## 6. Los siete arreglos de código — **imprescindibles**
 
 Sin estos arreglos el resultado **no** es reproducible, porque el buscador de hiperparámetros
-estaba explorando un espacio distinto del que decía explorar.
+estaba explorando un espacio distinto del que decía explorar. (El paper los agrupa en seis en su
+§IV-D, fusionando los defectos 2 y 3, que son dos caras del mismo problema de penalización.)
 
 | # | Archivo | Defecto | Arreglo |
 |---|---|---|---|
 | 1 | `analog/analog.py` | **PLS ignoraba `n_components`**: el `min(...)` incluía el número de columnas de `Y`, que siendo 1-D valía 1, fijando `n_components=1` siempre. Medido: `max\|pred(nc)−pred(nc=1)\| = 0.000e+00` para nc ∈ {1,2,3,5,8}. | Acotar sólo por el bloque de predictores. |
 | 2 | `analog/analog.py` | **Ridge/Lasso eran OLS disfrazado**: `alpha=0.1` fijo sobre MW crudos (~5×10⁴) no penaliza nada. Diferencia contra `LinearReg`: 3.6e-06 MW. | Estandarizar los predictores dentro del estimador (`make_pipeline(StandardScaler(), Ridge(...))`) y exponer `alpha` a Optuna en `[1e-3, 1e3]` log. |
 | 3 | `analog/analog_holidays.py` | `alpha` nunca entraba a la búsqueda (`_suggest_optuna_regressor_params` devolvía `{}` para Ridge/Lasso). | Añadido `_PENALIZED_LINEAR_REGRESSORS` y la sugerencia de `alpha`. |
-| 4 | `analog/analog_special_days.py` | **Sin alineación de fase**: `_select_special_positions` no tenía lógica de hora-del-día. Con `min_event_gap=12` la mitad del pool quedaba 12 h desfasada (mapeando las 22:00 sobre las 10:00). Con `gap=24` funcionaba **por coincidencia aritmética**. | Parámetro explícito `phase_period` (la capa de festivos pasa 24). Verificado: con gap=24 el resultado es **idéntico** (258 = 258 posiciones); con gap=12 pasa de 396 (138 mal alineadas) a 258 correctas. |
-| 5 | `analog/analog_holidays.py` + `analog_special_days.py` | **Ventanas que cruzan costura**: al aplanar los días, una ventana de 38 h podía empalmar los dos lados de una exclusión COVID, emparejando el contexto pre-festivo de un año con el festivo de otro. Medido en CEL: 4 de 97 ventanas, **3 de ellas en Año Nuevo** (contexto 2021-12-30 → festivo 2023-01-01). | `_calendar_seam_positions()` + parámetro `seam_positions`, que descarta candidatos cuyo span `[pos, pos+2·vsele)` cruza una costura. Elimina exactamente esas 4 y conserva las otras 93. |
+| 4 | `analog/analog_holidays.py` | **`scale_method` se leía de donde nunca aparece**: se recuperaba de `study.best_params`, pero un valor ya resuelto no se registra ahí, así que la corrida final podía usar un escalado distinto del que ganó la búsqueda. | Guardarlo como `trial.set_user_attr("scale_method", ...)` y leerlo de `best_trial.user_attrs`, con `best_params` como respaldo. |
+| 5 | `analog/analog_holidays.py` | **Rango de `k` vacío en silencio**: un `optuna_max_k < optuna_min_k` suministrado por el usuario producía una búsqueda vacía sin avisar. | `ValueError` explícito. |
+| 6 | `analog/analog_special_days.py` | **Sin alineación de fase**: `_select_special_positions` no tenía lógica de hora-del-día. Con `min_event_gap=12` la mitad del pool quedaba 12 h desfasada (mapeando las 22:00 sobre las 10:00). Con `gap=24` funcionaba **por coincidencia aritmética**. | Parámetro explícito `phase_period` (la capa de festivos pasa 24). Verificado: con gap=24 el resultado es **idéntico** (258 = 258 posiciones); con gap=12 pasa de 396 (138 mal alineadas) a 258 correctas. |
+| 7 | `analog/analog_holidays.py` + `analog_special_days.py` | **Ventanas que cruzan costura**: al aplanar los días, una ventana de 38 h podía empalmar los dos lados de una exclusión COVID, emparejando el contexto pre-festivo de un año con el festivo de otro. Medido en CEL: 4 de 97 ventanas, **3 de ellas en Año Nuevo** (contexto 2021-12-30 → festivo 2023-01-01). | `_calendar_seam_positions()` + parámetro `seam_positions`, que descarta candidatos cuyo span `[pos, pos+2·vsele)` cruza una costura. Elimina exactamente esas 4 y conserva las otras 93. |
 
 **Efecto neto de los arreglos sobre el error: ninguno significativo** (3.739 % → 3.805 %,
 p = 0.37). Pero cambiaron radicalmente qué modelo elige la búsqueda:
@@ -442,10 +452,10 @@ Nota: dos ideas de compuerta fueron probadas y **refutadas** — por magnitud de
 mejora) y por "la víspera también es festivo" (activamente peor: 3.517 % vs 3.201 %, p = 0.0015;
 la premisa está al revés, cuando la víspera es festivo el ancla funciona *mejor*).
 
-### 8.5 Lo único que queda: variables exógenas
+### 8.5 Lo único que queda: variables exógenas — **ya no es conjetura, está medido**
 
-No hay ninguna variable meteorológica en el pipeline (el CSV sólo tiene `ds`, demanda y banderas).
-Evidencia de que el residual es de forma climática:
+Cuando se escribió este documento no había ninguna variable meteorológica en el pipeline, y la
+atribución al clima descansaba en evidencia circunstancial:
 
 - La correlación cruzada entre regiones **el mismo día** es 0.455 en ERCOT y 0.204 en SEN; el
   componente común-por-fecha explica **58.1 %** de la varianza del sesgo en ERCOT.
@@ -454,19 +464,64 @@ Evidencia de que el residual es de forma climática:
 - Los 22 festivos cambian de signo de sesgo entre regiones, así que el calendario solo no puede
   dar el nivel.
 
+**El 2026-09-02 se obtuvo la temperatura y la conjetura quedó confirmada.** Las ocho zonas de
+demanda de ERCOT *son* sus zonas climáticas oficiales, así que cada una admite una temperatura
+representativa sin repartir carga. Se bajó temperatura horaria de Open-Meteo (gratis, sin API key)
+para 18 puntos urbanos ponderados por población, agregados a las 8 zonas más el sistema.
+
+El predictor no es la temperatura cruda sino la **anomalía de grados-día**: media diaria de
+|T − 18.3 °C| menos su climatología del día del año suavizada ±7 días. La temperatura cruda es mucho
+más débil (R² 5.7 %) porque la demanda sube en ambas direcciones desde el punto de balance y los dos
+sentidos se cancelan.
+
+| Fuente de temperatura | ¿Admisible al emitir? | R² por celda (n=171) | Spearman R² | p | choque sistémico (n=19) |
+|---|---|---|---|---|---|
+| ERA5 observado | ❌ oráculo | 24.5 % | 18.4 % | 4.7e-9 | 42.3 % |
+| **Pronóstico D−1** | **✅ sí** | **21.7 %** | **16.5 %** | **3.4e-8** | 34.8 % |
+| Pronóstico D−2 | ✅ sí | 19.9 % | 16.7 % | 2.8e-8 | 33.0 % |
+
+Tres lecturas:
+
+1. **El clima sí es la causa.** Una sola variable exógena explica 18–25 % de la varianza del sesgo,
+   contra **0.4 %** de los 26 experimentos de método completos (§8.2). Es ~50× más explicativa que
+   todo lo que se probó por dentro.
+2. **La señal sobrevive a la restricción operativa**, que es lo que la distingue del ancla de nivel
+   de §8.4. A D−1 el pronóstico de temperatura tiene MAE de 0.72 grados-día y r = 0.979 contra lo
+   observado, y se conserva el **89 %** del poder explicativo. Esta corrección **sí** es usable.
+3. **Los dos peores errores del panel son eventos climáticos opuestos**: la helada de enero 2025
+   (anomalía +9.7, sub-pronóstico +16.5 %) y un Año Nuevo 2026 templado (sobre-pronóstico −18.6 %).
+
+⚠️ **Dos honestidades.** El 42.3 % del choque sistémico se apoya en n=19 fechas y en la helada de
+MLK; excluyéndola cae a 12.1 % y pierde significancia (p = 0.11). **La cifra defendible es la de por
+celda** (n=171, rango, p < 1e-7). Y se probó si lo que importa es el *cambio* de temperatura entre la
+ventana observada y el festivo —lo que el método estructuralmente no puede saber— y **no lo es**: ese
+predictor explica sólo 1–3 %. Importa el nivel de la anomalía, no su cambio.
+
+**Qué falta.** Este análisis es de ERCOT, donde la zonificación es climática. No se ha obtenido la
+serie meteorológica equivalente para las regiones de control mexicanas, así que la conjetura de que
+el hueco de NES/NTE/PEN es también clima **no está probada para México**. Y medir la señal no es
+explotarla: el siguiente paso es meter la anomalía como corrección de nivel y medir cuánto baja
+el 3.789 %.
+
 ---
 
 ## 9. Archivos de referencia
 
 | Qué | Dónde |
 |---|---|
-| Corrida campeona | `experiments/experiment_2026_08_25_07_17_criterion_holiday_identity/` |
+| Corrida campeona | `experiments/experiment_2026_08_25_00_37_criterion_holiday_identity/` (la misma que cita el paper; las re-corridas `06_40` y `07_17` son bit-idénticas: MAPE y regresor coinciden celda a celda) |
 | Métricas celda a celda | `.../metrics.csv` (152 filas) |
 | Config completa | `.../manifest.yaml` |
 | Naive estacional pareado, celda a celda | `docs/seasonal_naive_ceiling.csv` (152 filas) |
 | Scripts de reproducción | `experiments/{gen_selectors,run_criterion,seasonal_naive_ceiling}.py` |
 | Barrido de los 7 criterios | `experiments/experiment_2026_08_25_00_3*_criterion_*/` |
 | Ablación del confundido k | `experiments/experiment_2026_08_25_00_59_criterion_*_kcap*/` |
+| Benchmark Similar-Days | `docs/BENCHMARK_SIMILAR_DAYS.md`, `docs/similar_days_benchmark{,_ercot}.csv` |
+| Temperatura observada (ERA5) | `holidays/weather_ercot.csv` — 89 856 h × 9 zonas, 2016–2026 |
+| Temperatura pronosticada D−1/D−2 | `holidays/weather_forecast_ercot.csv` — formato largo, 210 384 filas |
+| Descarga de clima | `experiments/fetch_weather_ercot.py`, `experiments/fetch_weather_forecast_ercot.py` |
+| Análisis de clima (§8.5) | `experiments/analyze_weather_bias.py`, `experiments/analyze_weather_exante.py` |
+| Clima celda a celda | `docs/weather_bias_cells.csv`, `docs/weather_exante_cells.csv` |
 
 ### Columnas de métricas relevantes en `metrics.csv`
 

@@ -62,14 +62,23 @@ Trabajo, Independencia, Revolución).
 
 ### ⚠️ Restricción honesta: sin clima
 
-El repo no tiene ninguna variable meteorológica, así que el bloque de clima del vector de contexto
-(§2.1a) **se omitió**. Ambos métodos operan con el mismo conjunto de información —calendario +
-historia de demanda— que es lo que hace justa la comparación.
+Cuando se corrió este benchmark el repo no tenía ninguna variable meteorológica, así que el bloque
+de clima del vector de contexto (§2.1a) **se omitió en ambos métodos**. Los dos operan con el mismo
+conjunto de información —calendario + historia de demanda— que es lo que hace justa la comparación.
 
-**Este caveat debe ir en el paper.** Similar-Days es, por diseño, un método de descriptores a nivel
-día, así que probablemente se beneficiaría *más* que analog-holidays de incorporar temperatura. La
-conclusión defendible es *"con el mismo conjunto de información, analog-holidays domina"*, no
-*"analog-holidays domina a Similar-Days en general"*.
+**Este caveat sigue vigente y está en el paper** (§V-D y §VI). Similar-Days es, por diseño, un
+método de descriptores a nivel día, así que probablemente se beneficiaría *más* que analog-holidays
+de incorporar temperatura. La conclusión defendible es *"con el mismo conjunto de información,
+analog-holidays domina"*, no *"analog-holidays domina a Similar-Days en general"*.
+
+> **Actualización 2026-09-02 — el clima ya se midió, pero eso NO invalida ni cambia este benchmark.**
+> Se obtuvo temperatura horaria para las zonas de ERCOT y se cuantificó que la anomalía de
+> grados-día explica 18–25 % de la varianza del sesgo de nivel (ver `RESULTADO_TECHO.md` §8.5 y el
+> paper §V-F). Ese análisis es *diagnóstico*: mide qué parte del error residual es clima. **Ninguno
+> de los dos métodos de esta comparación usa temperatura**, así que las cifras de abajo no cambian
+> y la igualdad de condiciones se mantiene. Lo que sí cambia es la lectura del caveat: ahora sabemos
+> el tamaño aproximado del premio que Similar-Days podría reclamar si se le diera clima, y sigue
+> siendo una comparación pendiente, no una que ya perdimos.
 
 ---
 
@@ -254,7 +263,12 @@ estructura de similitud no es universal entre sistemas.
 
 ---
 
-## 5. Redacción sugerida para el paper
+## 5. Redacción para el paper — **ya incorporada**
+
+> **Estado:** este texto ya está integrado en `paper/IEEE_PES/analog_holidays.md` §V-D, con las
+> tablas correspondientes (Tabla V) y la salvedad del mecanismo en §VI. Se conserva aquí como
+> referencia de la redacción acordada.
+
 
 > We benchmark the proposed method against a classical Similar-Days implementation following the
 > canonical five-step formulation, with three distance definitions (calendar-context, recent-shape,
