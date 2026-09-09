@@ -78,8 +78,15 @@ def rebind_selector(criterion: str) -> Path:
     return path
 
 
-def preflight(targets: list[tuple[str, str]], selector_path: Path) -> None:
-    """Abortar si falta el dato observado o la etiqueta de festivo del objetivo."""
+def preflight(targets: list[tuple[str, str]], selector_path: Path,
+              allow_stale: bool = False) -> None:
+    """Abortar si falta el dato observado o la etiqueta de festivo del objetivo.
+
+    `allow_stale` degrada el faltante de demanda a advertencia. Úsese sólo para
+    una corrida preliminar consciente: el ancla queda en la última ventana
+    disponible en vez de la víspera, así que el resultado NO es el método
+    validado a D-1 y su exactitud de 3.79 % no aplica.
+    """
     demand = pd.read_csv(base.SOURCE_PATH, parse_dates=["ds"])
     selector = pd.read_csv(selector_path, parse_dates=["date"])
     problems: list[str] = []
@@ -108,12 +115,20 @@ def preflight(targets: list[tuple[str, str]], selector_path: Path) -> None:
                 f"la última fecha que contiene es {selector['date'].max().date()}. "
                 f"Sin etiqueta de cluster no hay pool de análogos.")
 
-    if problems:
+    stale_only = problems and all("la demanda observada termina" in p for p in problems)
+    if problems and not (allow_stale and stale_only):
         print("\n".join(f"  ✗ {p}" for p in dict.fromkeys(problems)), file=sys.stderr)
         raise SystemExit(
             "\nNo se puede emitir el pronóstico: falta información de entrada.\n"
             "El método empareja la ventana observada previa a la emisión contra los\n"
             "análogos históricos; sin ese dato el resultado sería espurio, no aproximado.")
+    if problems:
+        print("\n".join(f"  ⚠️ {p}" for p in dict.fromkeys(problems)), file=sys.stderr)
+        print("\n⚠️ CORRIDA PRELIMINAR (--allow-stale). El ancla no es la víspera sino la\n"
+              "   última ventana disponible, así que esto NO es el método validado a D-1\n"
+              "   y el 3.79 % de MAPE mediano no aplica. Vuelve a correrlo sin la bandera\n"
+              "   en la mañana de la víspera para obtener el pronóstico operativo.\n",
+              file=sys.stderr)
 
 
 def forecast_one(uid: str, target: str, label: str) -> pd.Series:
@@ -167,6 +182,9 @@ def main() -> None:
     ap.add_argument("--targets", nargs="+", default=['2026-09-16:Independence Day'],
                     help='pares FECHA:ETIQUETA, p.ej. 2026-09-16:"Independence Day"')
     ap.add_argument("--out", default="docs/pronostico_festivos.csv")
+    ap.add_argument("--allow-stale", action="store_true",
+                    help="correr aunque la demanda no llegue a la hora de emisión "
+                         "(preliminar, no es el método validado)")
     args = ap.parse_args()
 
     targets = []
@@ -176,7 +194,7 @@ def main() -> None:
 
     selector_path = rebind_selector(CRITERION)
     base.OPTUNA_MAX_K_BY_CLUSTER = {}
-    preflight(targets, selector_path)
+    preflight(targets, selector_path, allow_stale=args.allow_stale)
 
     frames = []
     for target, label in targets:

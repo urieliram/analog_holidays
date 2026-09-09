@@ -80,6 +80,14 @@ SEN_demand_CEL,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_CEL,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
 SEN_demand_CEL,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
 SEN_demand_CEL,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,B,1.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_CEL,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_CEL,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
+SEN_demand_CEL,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_CEL,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
+SEN_demand_CEL,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Friday-like,C,0.0,H,best_matching_weekday
+SEN_demand_CEL,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,B,1.0,Sunday-like,D,1.0,I,best_matching_weekday
+SEN_demand_CEL,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Sunday,B,1.0,Sunday-like,D,1.0,I,best_matching_weekday
+SEN_demand_CEL,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Friday-like,E,2.0,H,best_matching_weekday
 SEN_demand_NES,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,,,,,,,I,best_matching_weekday
 SEN_demand_NES,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Thursday,B,1.0,unclear,C,0.0,J,best_matching_weekday
 SEN_demand_NES,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Sunday,B,1.0,unclear,C,0.0,I,best_matching_weekday
@@ -161,6 +169,14 @@ SEN_demand_NES,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_NES,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Sunday,B,1.0,unclear,D,1.0,I,best_matching_weekday
 SEN_demand_NES,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Sunday,B,1.0,unclear,D,1.0,I,best_matching_weekday
 SEN_demand_NES,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,B,1.0,unclear,C,0.0,I,best_matching_weekday
+SEN_demand_NES,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_NES,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0.0,Saturday-like,C,0.0,I,best_matching_weekday
+SEN_demand_NES,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_NES,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1.0,unclear,C,0.0,I,best_matching_weekday
+SEN_demand_NES,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Saturday-like,D,1.0,H,best_matching_weekday
+SEN_demand_NES,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,B,1.0,unclear,D,1.0,I,best_matching_weekday
+SEN_demand_NES,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Sunday,B,1.0,unclear,D,1.0,I,best_matching_weekday
+SEN_demand_NES,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1.0,unclear,D,1.0,H,best_matching_weekday
 SEN_demand_NOR,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Wednesday,A,0.0,Wednesday-like,D,1.0,L,best_matching_weekday
 SEN_demand_NOR,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Tuesday,A,0.0,Wednesday-like,D,1.0,K,best_matching_weekday
 SEN_demand_NOR,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Sunday,B,1.0,Sunday-like,D,1.0,I,best_matching_weekday
@@ -242,6 +258,14 @@ SEN_demand_NOR,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_NOR,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Sunday,A,0.0,Sunday-like,D,1.0,I,best_matching_weekday
 SEN_demand_NOR,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Sunday,A,0.0,Sunday-like,D,1.0,I,best_matching_weekday
 SEN_demand_NOR,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,B,1.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_NOR,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_NOR,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
+SEN_demand_NOR,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_NOR,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,A,0.0,Wednesday-like,C,0.0,I,best_matching_weekday
+SEN_demand_NOR,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Wednesday-like,D,1.0,H,best_matching_weekday
+SEN_demand_NOR,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,B,1.0,Sunday-like,D,1.0,I,best_matching_weekday
+SEN_demand_NOR,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Monday,A,0.0,Wednesday-like,D,1.0,G,best_matching_weekday
+SEN_demand_NOR,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Wednesday-like,D,1.0,H,best_matching_weekday
 SEN_demand_NTE,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Thursday,A,0.0,Friday-like,C,0.0,J,best_matching_weekday
 SEN_demand_NTE,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Tuesday,A,0.0,Friday-like,C,0.0,K,best_matching_weekday
 SEN_demand_NTE,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0.0,Friday-like,E,2.0,H,best_matching_weekday
@@ -323,6 +347,14 @@ SEN_demand_NTE,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_NTE,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Monday,A,0.0,Friday-like,E,2.0,G,best_matching_weekday
 SEN_demand_NTE,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Monday,A,0.0,Friday-like,E,2.0,G,best_matching_weekday
 SEN_demand_NTE,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0.0,Friday-like,D,1.0,I,best_matching_weekday
+SEN_demand_NTE,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_NTE,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Saturday,A,0.0,Friday-like,D,1.0,H,best_matching_weekday
+SEN_demand_NTE,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_NTE,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,A,0.0,Friday-like,C,0.0,I,best_matching_weekday
+SEN_demand_NTE,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1.0,Sunday-like,C,0.0,H,best_matching_weekday
+SEN_demand_NTE,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,B,1.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_NTE,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Tuesday,A,0.0,Friday-like,C,0.0,K,best_matching_weekday
+SEN_demand_NTE,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Friday-like,C,0.0,H,best_matching_weekday
 SEN_demand_OCC,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Tuesday,A,0.0,unclear,E,2.0,K,best_matching_weekday
 SEN_demand_OCC,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Wednesday,A,0.0,unclear,E,2.0,L,best_matching_weekday
 SEN_demand_OCC,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0.0,unclear,E,2.0,H,best_matching_weekday
@@ -404,6 +436,14 @@ SEN_demand_OCC,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_OCC,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Monday,A,0.0,unclear,E,2.0,G,best_matching_weekday
 SEN_demand_OCC,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
 SEN_demand_OCC,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,B,1.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_OCC,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_OCC,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,B,1.0,Sunday-like,E,2.0,I,best_matching_weekday
+SEN_demand_OCC,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_OCC,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,A,0.0,Sunday-like,E,2.0,I,best_matching_weekday
+SEN_demand_OCC,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Sunday-like,E,2.0,H,best_matching_weekday
+SEN_demand_OCC,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,B,1.0,Sunday-like,D,1.0,I,best_matching_weekday
+SEN_demand_OCC,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Sunday,B,1.0,Sunday-like,D,1.0,I,best_matching_weekday
+SEN_demand_OCC,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Sunday-like,E,2.0,H,best_matching_weekday
 SEN_demand_ORI,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Saturday,A,0.0,Saturday-like,D,1.0,H,best_matching_weekday
 SEN_demand_ORI,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,A,0.0,Saturday-like,E,2.0,H,best_matching_weekday
 SEN_demand_ORI,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Sunday,B,1.0,Sunday-like,C,0.0,I,best_matching_weekday
@@ -485,6 +525,14 @@ SEN_demand_ORI,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_ORI,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Monday,A,0.0,Saturday-like,E,2.0,G,best_matching_weekday
 SEN_demand_ORI,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Monday,A,0.0,Saturday-like,E,2.0,G,best_matching_weekday
 SEN_demand_ORI,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Saturday,B,1.0,Sunday-like,C,0.0,H,best_matching_weekday
+SEN_demand_ORI,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_ORI,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,B,1.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_ORI,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_ORI,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,A,0.0,Saturday-like,E,2.0,I,best_matching_weekday
+SEN_demand_ORI,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Saturday-like,E,2.0,H,best_matching_weekday
+SEN_demand_ORI,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0.0,Saturday-like,D,1.0,I,best_matching_weekday
+SEN_demand_ORI,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Wednesday,A,0.0,Saturday-like,D,1.0,L,best_matching_weekday
+SEN_demand_ORI,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,A,0.0,Saturday-like,E,2.0,H,best_matching_weekday
 SEN_demand_PEN,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Wednesday,B,1.0,unclear,C,0.0,L,best_matching_weekday
 SEN_demand_PEN,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,,,,,,,I,best_matching_weekday
 SEN_demand_PEN,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Sunday,A,0.0,unclear,E,2.0,I,best_matching_weekday
@@ -566,6 +614,14 @@ SEN_demand_PEN,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_PEN,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Monday,B,1.0,unclear,E,2.0,G,best_matching_weekday
 SEN_demand_PEN,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Monday,B,1.0,unclear,E,2.0,G,best_matching_weekday
 SEN_demand_PEN,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0.0,unclear,C,0.0,I,best_matching_weekday
+SEN_demand_PEN,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_PEN,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0.0,unclear,D,1.0,I,best_matching_weekday
+SEN_demand_PEN,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_PEN,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Sunday,B,1.0,unclear,E,2.0,I,best_matching_weekday
+SEN_demand_PEN,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1.0,unclear,C,0.0,H,best_matching_weekday
+SEN_demand_PEN,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,B,1.0,unclear,C,0.0,I,best_matching_weekday
+SEN_demand_PEN,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Sunday,B,1.0,unclear,C,0.0,I,best_matching_weekday
+SEN_demand_PEN,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1.0,unclear,E,2.0,H,best_matching_weekday
 SEN_demand_SIN,Constitution Day,Constitution Day,2020-02-03,H2,Monday,1,Weekday,Winter,observed_monday_rule,False,True,Wednesday,B,1.0,Thursday-like,D,1.0,L,best_matching_weekday
 SEN_demand_SIN,Benito Juarez's Birthday,Benito Juarez's Birthday,2020-03-16,H2,Monday,1,Weekday,Spring,observed_monday_rule,False,True,Saturday,B,1.0,Thursday-like,E,2.0,H,best_matching_weekday
 SEN_demand_SIN,Maundy Thursday,Maundy Thursday,2020-04-09,H1,Thursday,1,Weekday,Spring,movable_date,False,False,Saturday,A,0.0,Sunday-like,E,2.0,H,best_matching_weekday
@@ -647,3 +703,11 @@ SEN_demand_SIN,Good Friday,Good Friday,2026-04-03,H2,Friday,1,Weekday,Spring,mov
 SEN_demand_SIN,Holy Saturday,Holy Saturday,2026-04-04,H3,Saturday,2,Saturday,Spring,movable_date,False,False,Saturday,B,1.0,Thursday-like,E,2.0,H,best_matching_weekday
 SEN_demand_SIN,Post-holiday recovery,Holy Saturday,2026-04-05,H4,Sunday,3,Sunday,Spring,derived_recovery_day,False,False,Saturday,A,0.0,Sunday-like,E,2.0,H,best_matching_weekday
 SEN_demand_SIN,Labor Day,Labor Day,2026-05-01,H2,Friday,1,Weekday,Spring,fixed_date,True,False,Sunday,A,0.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_SIN,Independence Eve,Independence Eve,2026-09-15,H1,Tuesday,1,Weekday,Autumn,fixed_date,True,False,,,,,,,,best_matching_weekday
+SEN_demand_SIN,Independence Day,Independence Day,2026-09-16,H2,Wednesday,1,Weekday,Autumn,fixed_date,True,False,Sunday,A,0.0,Sunday-like,C,0.0,I,best_matching_weekday
+SEN_demand_SIN,Post-holiday recovery,Independence Day,2026-09-17,H4,Thursday,1,Weekday,Autumn,derived_recovery_day,False,False,,,,,,,,best_matching_weekday
+SEN_demand_SIN,Mexican Revolution Day,Mexican Revolution Day,2026-11-16,H2,Monday,1,Weekday,Autumn,observed_monday_rule,False,True,Saturday,B,1.0,Thursday-like,E,2.0,H,best_matching_weekday
+SEN_demand_SIN,Christmas Eve,Christmas Eve,2026-12-24,H1,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1.0,Thursday-like,E,2.0,H,best_matching_weekday
+SEN_demand_SIN,Christmas Day,Christmas Day,2026-12-25,H2,Friday,1,Weekday,Winter,fixed_date,True,False,Sunday,A,0.0,Sunday-like,D,1.0,I,best_matching_weekday
+SEN_demand_SIN,Post-holiday recovery,Christmas Day,2026-12-26,H4,Saturday,2,Saturday,Winter,derived_recovery_day,False,False,Sunday,B,1.0,Thursday-like,D,1.0,I,best_matching_weekday
+SEN_demand_SIN,New Year's Eve,New Year's Eve,2026-12-31,H2,Thursday,1,Weekday,Winter,fixed_date,True,False,Saturday,B,1.0,Thursday-like,E,2.0,H,best_matching_weekday
