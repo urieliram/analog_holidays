@@ -11,6 +11,15 @@ por comportamiento de cuarentena— se preservan porque el script no escribe una
 sola fila anterior al último dato existente. La base PML *sí* tiene 2022; si se
 copiara completa se reintroduciría justo lo que se excluyó a propósito.
 
+**Convencion horaria - no es cosmetica.** La base etiqueta el INICIO del
+intervalo (hora CENACE 1 -> ds = 00:00) y este CSV el FIN (hora 1 -> 01:00),
+asi que hay que sumar una hora al indice de la base. Verificado sobre las
+47,062 horas que se traslapan: sin el ajuste el MAE entre ambas fuentes es de
+211 MW (3.2 %) con sesgo medio cero -la firma de un desfase, no de una
+diferencia de nivel-; con el ajuste baja a 0.55 MW y la correlacion es
+0.99992. Cargar sin corregir mete un corrimiento de una hora justo donde el
+metodo ancla su nivel.
+
 Uso:  /usr/bin/python3 analog_holidays/experiments/sync_demand_from_pml.py [--dry-run]
 """
 from __future__ import annotations
@@ -43,7 +52,8 @@ def read_pml_actuals() -> pd.DataFrame:
               AND r.uid BETWEEN {DEMAND_UIDS.start} AND {DEMAND_UIDS.stop - 1}
         """
         df = pd.read_sql(q, con)
-    df["ds"] = pd.to_datetime(df["ds"])
+    # Inicio-de-intervalo (base) -> fin-de-intervalo (CSV): ver nota de abajo.
+    df["ds"] = pd.to_datetime(df["ds"]) + pd.Timedelta(hours=1)
     return df.pivot_table(index="ds", columns="unique_id", values="y", aggfunc="last")
 
 
@@ -62,6 +72,22 @@ def main() -> None:
     pml = read_pml_actuals()
     print(f"PML: {pml.index.min()} → {pml.index.max()}  ({len(pml)} horas, "
           f"{pml.shape[1]} series)")
+
+    # Control de alineación: sobre el tramo común las dos fuentes deben ser la
+    # misma serie. Decenas de MW delatarían que la convención horaria cambió.
+    ref = next((c for c in demand_cols if c in pml.columns), None)
+    if ref is not None:
+        common = csv.index.intersection(pml.index)
+        both = pd.concat([csv.loc[common, ref].rename("csv"),
+                          pml.loc[common, ref].rename("pml")], axis=1).dropna()
+        if len(both) > 24:
+            mae = (both["csv"] - both["pml"]).abs().mean()
+            print(f"alineación en el traslape ({ref}, {len(both):,} h): MAE={mae:.2f} MW")
+            if mae > 5.0:
+                raise SystemExit(
+                    f"ABORTA: las dos fuentes difieren {mae:.1f} MW sobre el histórico "
+                    f"común;\ndeberían ser idénticas. Revisa la convención horaria "
+                    f"antes de escribir nada.")
 
     missing = [c for c in demand_cols if c not in pml.columns]
     if missing:
