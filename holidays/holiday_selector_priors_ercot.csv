@@ -1,0 +1,154 @@
+unique_id,anchor_holiday_name,holiday_day_type,history_rows,history_years,inferred_best_matching_weekday,inferred_daily_profile_cluster,inferred_daily_profile_cluster_id,inferred_daily_profile_archetype,inferred_event_profile_cluster,inferred_event_profile_cluster_id
+ERCOT_demand_COAST,Christmas Day,H2,9,9,Sunday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Christmas Day,H4,9,9,Tuesday,B,1,Wednesday-like,D,1
+ERCOT_demand_COAST,Christmas Eve,H1,9,9,Tuesday,B,1,Wednesday-like,D,1
+ERCOT_demand_COAST,Day after Thanksgiving,H2,9,9,Monday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Day after Thanksgiving,H4,9,9,Monday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Independence Day,H2,9,9,Sunday,A,0,Friday-like,C,0
+ERCOT_demand_COAST,Juneteenth National Independence Day,H2,9,9,Monday,A,0,Friday-like,C,0
+ERCOT_demand_COAST,Labor Day,H2,9,9,Sunday,A,0,Friday-like,C,0
+ERCOT_demand_COAST,Lyndon B. Johnson Day,H2,9,9,Sunday,A,0,Friday-like,C,0
+ERCOT_demand_COAST,Martin Luther King Jr. Day,H2,10,10,Wednesday,B,1,Wednesday-like,D,1
+ERCOT_demand_COAST,Memorial Day,H2,9,9,Sunday,A,0,Friday-like,E,2
+ERCOT_demand_COAST,New Year's Day,H2,9,9,Sunday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Presidents' Day,H2,10,10,Friday,B,1,Wednesday-like,E,2
+ERCOT_demand_COAST,San Jacinto Day,H2,9,9,Monday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Texas Independence Day,H2,10,10,Wednesday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Thanksgiving Day,H1,9,9,Friday,A,0,Friday-like,D,1
+ERCOT_demand_COAST,Veterans Day,H2,9,9,Monday,A,0,Friday-like,E,2
+ERCOT_demand_EAST,Christmas Day,H2,9,9,Tuesday,A,0,unclear,D,1
+ERCOT_demand_EAST,Christmas Day,H4,9,9,Tuesday,A,0,unclear,D,1
+ERCOT_demand_EAST,Christmas Eve,H1,9,9,Saturday,A,0,Tuesday-like,D,1
+ERCOT_demand_EAST,Day after Thanksgiving,H2,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_EAST,Day after Thanksgiving,H4,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_EAST,Independence Day,H2,9,9,Saturday,B,1,Tuesday-like,C,0
+ERCOT_demand_EAST,Juneteenth National Independence Day,H2,9,9,Thursday,B,1,Tuesday-like,C,0
+ERCOT_demand_EAST,Labor Day,H2,9,9,Sunday,B,1,Tuesday-like,C,0
+ERCOT_demand_EAST,Lyndon B. Johnson Day,H2,9,9,Friday,B,1,Tuesday-like,E,2
+ERCOT_demand_EAST,Martin Luther King Jr. Day,H2,10,10,Sunday,B,1,Tuesday-like,D,1
+ERCOT_demand_EAST,Memorial Day,H2,9,9,Sunday,B,1,Tuesday-like,C,0
+ERCOT_demand_EAST,New Year's Day,H2,9,9,Saturday,B,1,Tuesday-like,D,1
+ERCOT_demand_EAST,Presidents' Day,H2,10,10,Friday,A,0,Tuesday-like,D,1
+ERCOT_demand_EAST,San Jacinto Day,H2,9,9,Monday,B,1,Tuesday-like,C,0
+ERCOT_demand_EAST,Texas Independence Day,H2,10,10,Wednesday,A,0,unclear,D,1
+ERCOT_demand_EAST,Thanksgiving Day,H1,9,9,Monday,A,0,unclear,D,1
+ERCOT_demand_EAST,Veterans Day,H2,9,9,Sunday,B,1,Tuesday-like,C,0
+ERCOT_demand_ERCOT,Christmas Day,H2,9,9,Tuesday,A,0,unclear,D,1
+ERCOT_demand_ERCOT,Christmas Day,H4,9,9,Tuesday,A,0,unclear,D,1
+ERCOT_demand_ERCOT,Christmas Eve,H1,9,9,Tuesday,A,0,unclear,E,2
+ERCOT_demand_ERCOT,Day after Thanksgiving,H2,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_ERCOT,Day after Thanksgiving,H4,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_ERCOT,Independence Day,H2,9,9,Saturday,B,1,unclear,C,0
+ERCOT_demand_ERCOT,Juneteenth National Independence Day,H2,9,9,Friday,B,1,unclear,D,1
+ERCOT_demand_ERCOT,Labor Day,H2,9,9,Saturday,B,1,unclear,D,1
+ERCOT_demand_ERCOT,Lyndon B. Johnson Day,H2,9,9,Friday,B,1,unclear,C,0
+ERCOT_demand_ERCOT,Martin Luther King Jr. Day,H2,10,10,Friday,A,0,unclear,E,2
+ERCOT_demand_ERCOT,Memorial Day,H2,9,9,Saturday,B,1,unclear,C,0
+ERCOT_demand_ERCOT,New Year's Day,H2,9,9,Sunday,B,1,unclear,E,2
+ERCOT_demand_ERCOT,Presidents' Day,H2,10,10,Friday,A,0,unclear,D,1
+ERCOT_demand_ERCOT,San Jacinto Day,H2,9,9,Saturday,B,1,unclear,E,2
+ERCOT_demand_ERCOT,Texas Independence Day,H2,10,10,Wednesday,B,1,unclear,E,2
+ERCOT_demand_ERCOT,Thanksgiving Day,H1,9,9,Friday,A,0,unclear,D,1
+ERCOT_demand_ERCOT,Veterans Day,H2,9,9,Sunday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Christmas Day,H2,9,9,Sunday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Christmas Day,H4,9,9,Sunday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Christmas Eve,H1,9,9,Sunday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Day after Thanksgiving,H2,9,9,Monday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Day after Thanksgiving,H4,9,9,Monday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Independence Day,H2,9,9,Saturday,B,1,Tuesday-like,E,2
+ERCOT_demand_FWEST,Juneteenth National Independence Day,H2,9,9,Monday,B,1,Tuesday-like,E,2
+ERCOT_demand_FWEST,Labor Day,H2,9,9,Friday,A,0,Tuesday-like,E,2
+ERCOT_demand_FWEST,Lyndon B. Johnson Day,H2,9,9,Friday,B,1,Tuesday-like,C,0
+ERCOT_demand_FWEST,Martin Luther King Jr. Day,H2,10,10,Sunday,A,0,Tuesday-like,C,0
+ERCOT_demand_FWEST,Memorial Day,H2,9,9,Friday,B,1,Tuesday-like,E,2
+ERCOT_demand_FWEST,New Year's Day,H2,9,9,Saturday,B,1,Tuesday-like,E,2
+ERCOT_demand_FWEST,Presidents' Day,H2,10,10,Saturday,A,0,Tuesday-like,C,0
+ERCOT_demand_FWEST,San Jacinto Day,H2,9,9,Sunday,B,1,Tuesday-like,C,0
+ERCOT_demand_FWEST,Texas Independence Day,H2,10,10,Monday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Thanksgiving Day,H1,9,9,Sunday,A,0,unclear,D,1
+ERCOT_demand_FWEST,Veterans Day,H2,9,9,Tuesday,A,0,unclear,D,1
+ERCOT_demand_NCENT,Christmas Day,H2,9,9,Tuesday,A,0,Friday-like,D,1
+ERCOT_demand_NCENT,Christmas Day,H4,9,9,Sunday,A,0,Saturday-like,D,1
+ERCOT_demand_NCENT,Christmas Eve,H1,9,9,Tuesday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,Day after Thanksgiving,H2,9,9,Wednesday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,Day after Thanksgiving,H4,9,9,Wednesday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,Independence Day,H2,9,9,Saturday,A,0,Saturday-like,E,2
+ERCOT_demand_NCENT,Juneteenth National Independence Day,H2,9,9,Saturday,A,0,Saturday-like,E,2
+ERCOT_demand_NCENT,Labor Day,H2,9,9,Sunday,A,0,Saturday-like,E,2
+ERCOT_demand_NCENT,Lyndon B. Johnson Day,H2,9,9,Sunday,A,0,Saturday-like,E,2
+ERCOT_demand_NCENT,Martin Luther King Jr. Day,H2,10,10,Saturday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,Memorial Day,H2,9,9,Saturday,A,0,Saturday-like,E,2
+ERCOT_demand_NCENT,New Year's Day,H2,9,9,Saturday,A,0,Saturday-like,D,1
+ERCOT_demand_NCENT,Presidents' Day,H2,10,10,Friday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,San Jacinto Day,H2,9,9,Sunday,A,0,Saturday-like,D,1
+ERCOT_demand_NCENT,Texas Independence Day,H2,10,10,Friday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,Thanksgiving Day,H1,9,9,Friday,B,1,Friday-like,D,1
+ERCOT_demand_NCENT,Veterans Day,H2,9,9,Sunday,A,0,Friday-like,D,1
+ERCOT_demand_NORTH,Christmas Day,H2,9,9,Friday,A,0,Thursday-like,E,2
+ERCOT_demand_NORTH,Christmas Day,H4,9,9,Saturday,B,1,Thursday-like,E,2
+ERCOT_demand_NORTH,Christmas Eve,H1,9,9,Friday,A,0,unclear,D,1
+ERCOT_demand_NORTH,Day after Thanksgiving,H2,9,9,Saturday,A,0,Thursday-like,D,1
+ERCOT_demand_NORTH,Day after Thanksgiving,H4,9,9,Saturday,A,0,Thursday-like,D,1
+ERCOT_demand_NORTH,Independence Day,H2,9,9,Sunday,B,1,Thursday-like,D,1
+ERCOT_demand_NORTH,Juneteenth National Independence Day,H2,9,9,Friday,B,1,Thursday-like,D,1
+ERCOT_demand_NORTH,Labor Day,H2,9,9,Friday,B,1,Thursday-like,C,0
+ERCOT_demand_NORTH,Lyndon B. Johnson Day,H2,9,9,Friday,B,1,Thursday-like,C,0
+ERCOT_demand_NORTH,Martin Luther King Jr. Day,H2,10,10,Thursday,B,1,Thursday-like,C,0
+ERCOT_demand_NORTH,Memorial Day,H2,9,9,Thursday,B,1,Thursday-like,E,2
+ERCOT_demand_NORTH,New Year's Day,H2,9,9,Thursday,A,0,unclear,D,1
+ERCOT_demand_NORTH,Presidents' Day,H2,10,10,Tuesday,A,0,Thursday-like,D,1
+ERCOT_demand_NORTH,San Jacinto Day,H2,9,9,Friday,B,1,Thursday-like,E,2
+ERCOT_demand_NORTH,Texas Independence Day,H2,10,10,Monday,A,0,unclear,D,1
+ERCOT_demand_NORTH,Thanksgiving Day,H1,9,9,Tuesday,A,0,unclear,D,1
+ERCOT_demand_NORTH,Veterans Day,H2,9,9,,,,,,
+ERCOT_demand_SCENT,Christmas Day,H2,9,9,Tuesday,A,0,unclear,C,0
+ERCOT_demand_SCENT,Christmas Day,H4,9,9,Tuesday,A,0,unclear,C,0
+ERCOT_demand_SCENT,Christmas Eve,H1,9,9,Tuesday,A,0,unclear,C,0
+ERCOT_demand_SCENT,Day after Thanksgiving,H2,9,9,Wednesday,A,0,unclear,C,0
+ERCOT_demand_SCENT,Day after Thanksgiving,H4,9,9,Wednesday,A,0,unclear,C,0
+ERCOT_demand_SCENT,Independence Day,H2,9,9,Sunday,B,1,Friday-like,D,1
+ERCOT_demand_SCENT,Juneteenth National Independence Day,H2,9,9,Monday,B,1,Friday-like,E,2
+ERCOT_demand_SCENT,Labor Day,H2,9,9,Saturday,B,1,Friday-like,D,1
+ERCOT_demand_SCENT,Lyndon B. Johnson Day,H2,9,9,Friday,B,1,Friday-like,D,1
+ERCOT_demand_SCENT,Martin Luther King Jr. Day,H2,10,10,Thursday,A,0,unclear,C,0
+ERCOT_demand_SCENT,Memorial Day,H2,9,9,Saturday,B,1,Friday-like,C,0
+ERCOT_demand_SCENT,New Year's Day,H2,9,9,Sunday,B,1,Friday-like,C,0
+ERCOT_demand_SCENT,Presidents' Day,H2,10,10,Friday,A,0,unclear,E,2
+ERCOT_demand_SCENT,San Jacinto Day,H2,9,9,Saturday,B,1,Friday-like,C,0
+ERCOT_demand_SCENT,Texas Independence Day,H2,10,10,Monday,B,1,Friday-like,C,0
+ERCOT_demand_SCENT,Thanksgiving Day,H1,9,9,Friday,B,1,Friday-like,C,0
+ERCOT_demand_SCENT,Veterans Day,H2,9,9,Friday,B,1,Friday-like,C,0
+ERCOT_demand_SOUTH,Christmas Day,H2,9,9,Saturday,A,0,unclear,C,0
+ERCOT_demand_SOUTH,Christmas Day,H4,9,9,Tuesday,A,0,unclear,C,0
+ERCOT_demand_SOUTH,Christmas Eve,H1,9,9,Saturday,A,0,unclear,C,0
+ERCOT_demand_SOUTH,Day after Thanksgiving,H2,9,9,Wednesday,B,1,unclear,E,2
+ERCOT_demand_SOUTH,Day after Thanksgiving,H4,9,9,Wednesday,A,0,unclear,E,2
+ERCOT_demand_SOUTH,Independence Day,H2,9,9,Friday,B,1,unclear,C,0
+ERCOT_demand_SOUTH,Juneteenth National Independence Day,H2,9,9,Monday,B,1,unclear,C,0
+ERCOT_demand_SOUTH,Labor Day,H2,9,9,Sunday,B,1,unclear,D,1
+ERCOT_demand_SOUTH,Lyndon B. Johnson Day,H2,9,9,Sunday,B,1,unclear,E,2
+ERCOT_demand_SOUTH,Martin Luther King Jr. Day,H2,10,10,Thursday,A,0,unclear,E,2
+ERCOT_demand_SOUTH,Memorial Day,H2,9,9,Saturday,B,1,unclear,C,0
+ERCOT_demand_SOUTH,New Year's Day,H2,9,9,Sunday,B,1,unclear,E,2
+ERCOT_demand_SOUTH,Presidents' Day,H2,10,10,Friday,A,0,unclear,C,0
+ERCOT_demand_SOUTH,San Jacinto Day,H2,9,9,Friday,B,1,unclear,C,0
+ERCOT_demand_SOUTH,Texas Independence Day,H2,10,10,Monday,B,1,unclear,E,2
+ERCOT_demand_SOUTH,Thanksgiving Day,H1,9,9,Friday,B,1,unclear,E,2
+ERCOT_demand_SOUTH,Veterans Day,H2,9,9,Sunday,B,1,unclear,C,0
+ERCOT_demand_WEST,Christmas Day,H2,9,9,Monday,A,0,unclear,D,1
+ERCOT_demand_WEST,Christmas Day,H4,9,9,Thursday,B,1,unclear,D,1
+ERCOT_demand_WEST,Christmas Eve,H1,9,9,Monday,A,0,unclear,D,1
+ERCOT_demand_WEST,Day after Thanksgiving,H2,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_WEST,Day after Thanksgiving,H4,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_WEST,Independence Day,H2,9,9,Saturday,B,1,unclear,E,2
+ERCOT_demand_WEST,Juneteenth National Independence Day,H2,9,9,Saturday,B,1,unclear,C,0
+ERCOT_demand_WEST,Labor Day,H2,9,9,Saturday,B,1,unclear,E,2
+ERCOT_demand_WEST,Lyndon B. Johnson Day,H2,9,9,Saturday,B,1,unclear,C,0
+ERCOT_demand_WEST,Martin Luther King Jr. Day,H2,10,10,Sunday,A,0,unclear,C,0
+ERCOT_demand_WEST,Memorial Day,H2,9,9,Saturday,B,1,unclear,E,2
+ERCOT_demand_WEST,New Year's Day,H2,9,9,Tuesday,B,1,unclear,D,1
+ERCOT_demand_WEST,Presidents' Day,H2,10,10,Sunday,A,0,unclear,D,1
+ERCOT_demand_WEST,San Jacinto Day,H2,9,9,Wednesday,B,1,unclear,D,1
+ERCOT_demand_WEST,Texas Independence Day,H2,10,10,Friday,A,0,unclear,D,1
+ERCOT_demand_WEST,Thanksgiving Day,H1,9,9,Wednesday,A,0,unclear,D,1
+ERCOT_demand_WEST,Veterans Day,H2,9,9,Wednesday,A,0,unclear,D,1

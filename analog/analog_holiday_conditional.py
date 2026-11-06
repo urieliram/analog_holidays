@@ -214,6 +214,7 @@ def _run_single_stage(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=len(HOUR_COLS),
     )
     model.fit(y=extended_series, special_days=extended_mask)
     result = model.predict(h=season_length, level=levels)
@@ -237,6 +238,7 @@ def _run_single_stage(
         min_special_points=min_special_points,
         min_event_gap=min_event_gap,
         max_events=max_events,
+        phase_period=len(HOUR_COLS),
     )
 
     # Map selected positions back to historical day metadata. The appended

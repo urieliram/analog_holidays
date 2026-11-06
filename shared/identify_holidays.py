@@ -33,11 +33,54 @@ _NTH_MONDAY_RULES: dict[str, tuple[int, int]] = {
 }
 
 
+# Weekday names as they appear in the holiday catalogs, Monday=0 to match
+# ``pd.Timestamp.dayofweek``.
+_WEEKDAY_NAME_TO_INDEX: dict[str, int] = {
+    'monday': 0,
+    'tuesday': 1,
+    'wednesday': 2,
+    'thursday': 3,
+    'friday': 4,
+    'saturday': 5,
+    'sunday': 6,
+}
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> pd.Timestamp:
+    """Return the nth weekday of the given month; n=-1 means last occurrence."""
+    first = pd.Timestamp(year=year, month=month, day=1)
+    if n == -1:
+        last = first + pd.offsets.MonthEnd(0)
+        offset = (last.dayofweek - weekday) % 7
+        return (last - timedelta(days=offset)).normalize()
+
+    if n < 1:
+        raise ValueError(f"week_of_month must be >= 1 or -1, got {n}.")
+
+    offset = (weekday - first.dayofweek) % 7
+    resolved = first + timedelta(days=offset + (n - 1) * 7)
+    if resolved.month != first.month:
+        raise ValueError(
+            f"{year}-{month:02d} has no {n}th weekday {weekday}; "
+            "the rule would resolve into the following month."
+        )
+    return resolved.normalize()
+
+
 def _nth_monday_of_month(year: int, month: int, n: int) -> pd.Timestamp:
     """Return the nth Monday of the given month."""
-    first = pd.Timestamp(year=year, month=month, day=1)
-    offset = (7 - first.dayofweek) % 7
-    return first + timedelta(days=offset + (n - 1) * 7)
+    return _nth_weekday_of_month(year, month, _WEEKDAY_NAME_TO_INDEX['monday'], n)
+
+
+def _holiday_display_name(holiday: dict) -> str:
+    """Return the preferred display name from a holiday catalog row."""
+    return (
+        holiday.get('name')
+        or holiday.get('name_en')
+        or holiday.get('name_es')
+        or holiday.get('id')
+        or 'Unnamed holiday'
+    )
 
 
 def _resolve_observed_holiday_date(year: int, holiday: dict) -> pd.Timestamp | None:
@@ -120,7 +163,7 @@ def load_holidays_catalog(
             if year_min <= dt.year <= year_max:
                 rows.append({
                     'date': dt,
-                    'holiday_name': holiday['name'],
+                    'holiday_name': _holiday_display_name(holiday),
                 })
 
         return (
@@ -132,8 +175,11 @@ def load_holidays_catalog(
     years = range(year_min, year_max + 1)
     holiday_dates: dict = {}
 
+    resolved_holiday_dates_by_id: dict[str, dict[int, pd.Timestamp]] = {}
+
     for holiday in holidays_json['holidays']:
-        name = holiday['name']
+        name = _holiday_display_name(holiday)
+        holiday_id = holiday.get('id')
         years_filter = holiday.get('years')
         holiday_years = years
         if years_filter is not None:
@@ -141,6 +187,13 @@ def load_holidays_catalog(
             holiday_years = [year for year in years if year in valid_years]
             if not holiday_years:
                 continue
+
+        def _record(year: int, dt: pd.Timestamp, holiday_id=holiday_id, name=name) -> None:
+            """Register a resolved date, keeping the by-id index in step."""
+            dt = dt.normalize()
+            holiday_dates[dt] = name
+            if holiday_id:
+                resolved_holiday_dates_by_id.setdefault(holiday_id, {})[year] = dt
 
         if holiday['date_type'] == 'fixed':
             for year in holiday_years:
@@ -150,7 +203,7 @@ def load_holidays_catalog(
                         dt = pd.Timestamp(year=year, month=holiday['month'], day=holiday['day'])
                     except ValueError:
                         continue
-                holiday_dates[dt.normalize()] = name
+                _record(year, dt)
 
         elif holiday['date_type'] == 'movable':
             rule = holiday.get('rule', '')
@@ -168,7 +221,43 @@ def load_holidays_catalog(
                         dt = easter_date
                     else:
                         continue
-                holiday_dates[dt.normalize()] = name
+                _record(year, dt)
+
+        elif holiday['date_type'] == 'relative_weekday':
+            weekday_name = str(holiday.get('weekday', '')).strip().lower()
+            if weekday_name not in _WEEKDAY_NAME_TO_INDEX:
+                raise ValueError(
+                    f"Holiday {name!r} has an unrecognized weekday {weekday_name!r}. "
+                    f"Valid options: {', '.join(sorted(_WEEKDAY_NAME_TO_INDEX))}."
+                )
+            for year in holiday_years:
+                dt = _nth_weekday_of_month(
+                    year,
+                    int(holiday['month']),
+                    _WEEKDAY_NAME_TO_INDEX[weekday_name],
+                    int(holiday['week_of_month']),
+                )
+                _record(year, dt)
+
+        elif holiday['date_type'] == 'relative_to_holiday':
+            relative_to = holiday.get('relative_to')
+            offset_days = int(holiday.get('offset_days', 0))
+            if not relative_to:
+                raise ValueError(
+                    f"Holiday {name!r} has date_type 'relative_to_holiday' but no 'relative_to' id."
+                )
+            for year in holiday_years:
+                base_dt = resolved_holiday_dates_by_id.get(relative_to, {}).get(year)
+                if base_dt is None:
+                    # Resolution is a single pass in catalog order, so the anchor
+                    # must be defined before the holidays that offset from it.
+                    raise ValueError(
+                        f"Holiday {name!r} is relative to {relative_to!r}, which has no "
+                        f"resolved date for {year}. List the anchor holiday before it in "
+                        "the catalog and make sure their 'years' filters overlap."
+                    )
+                dt = pd.Timestamp(base_dt) + timedelta(days=offset_days)
+                _record(year, dt)
 
     return (
         pd.DataFrame(
@@ -2480,9 +2569,8 @@ def _load_selector_holiday_metadata(holidays_path: Path | str | None) -> dict[st
         payload = json.load(file_obj)
 
     return {
-        holiday['name']: holiday
+        _holiday_display_name(holiday): holiday
         for holiday in payload.get('holidays', [])
-        if 'name' in holiday
     }
 
 
@@ -2606,6 +2694,12 @@ def _selector_date_rule(
 
     if date_type == 'movable':
         return 'movable_date', False, False
+
+    if date_type == 'relative_weekday':
+        return 'relative_weekday_rule', False, False
+
+    if date_type == 'relative_to_holiday':
+        return 'relative_to_holiday_rule', False, False
 
     return 'unknown', False, False
 
@@ -3046,6 +3140,24 @@ ANALOG_CLUSTER_CRITERIA_CATALOG = {
         'Groups holiday dates by best_matching_weekday, the closest weekday-profile '
         'label assigned to each date.'
     ),
+    'observance_tier': (
+        'Groups holiday dates by how inhábil they actually are (observance tier): '
+        'working (barely a holiday, e.g. Labor Day), partial (industry/commerce '
+        'partially active, e.g. Holy Saturday) and full (fully observed, e.g. '
+        'Christmas Day). Tiers derived from the observed_strength diagnostic.'
+    ),
+    'observance_tier_depth': (
+        'Four-tier refinement of observance_tier that splits the fully-observed group '
+        'by demand-drop depth: working, partial, full_civic (shallow ~15% drop, e.g. '
+        'Independence/Constitution) and full_deep (~30% drop, e.g. Christmas/New Year). '
+        'Separates patriotic civic holidays from the deep Dec-Jan winter holidays.'
+    ),
+    'holiday_identity': (
+        'Pure Similar-Days hard filter: every distinct holiday (by anchor name) '
+        'becomes its own analog cluster, so the downstream selector only matches '
+        'a target against other instances of the SAME holiday. Tests the calendar-'
+        'identity filter against the shape-based analog search.'
+    ),
 }
 
 _SEASONAL_ANALOG_VALUE_ALIASES = {
@@ -3067,6 +3179,48 @@ _HEAT_COLD_SEASON_MAP = {
 _SHAPE_PEARSON_ANALOG_ORDER = tuple('CDEFGHIJKLMNOPQRSTUVWXYZ')
 _SEASONAL_ANALOG_ORDER = ('winter', 'spring', 'fall', 'summer')
 _SEASONAL_HEAT_COLD_ORDER = ('heat', 'cold')
+
+# Observance tier per anchor holiday. Derived from the observed_strength diagnostic
+# (shared/observed_strength.py): median observed_strength across regions/years, i.e.
+# actual_demand_drop / typical_demand_drop. Thresholds: <0.55 -> working,
+# 0.55-0.80 -> partial, >=0.80 -> full. The strength shown in the comment is the
+# per-anchor median that placed it in its tier.
+_OBSERVANCE_TIER_BY_ANCHOR = {
+    'labor day': 'working',              # 0.47 -- least inhábil
+    'mexican revolution day': 'working',  # 0.54
+    'holy saturday': 'partial',          # 0.57
+    'maundy thursday': 'partial',        # 0.63
+    'good friday': 'partial',            # 0.70
+    'christmas eve': 'partial',          # 0.71
+    "new year's eve": 'partial',         # 0.77
+    'christmas day': 'full',             # 0.85
+    'constitution day': 'full',          # 0.88
+    "new year's day": 'full',            # 0.94
+    "benito juarez's birthday": 'full',  # 0.97
+    'independence day': 'full',          # 0.99 -- fully observed
+}
+_OBSERVANCE_TIER_ORDER = ('working', 'partial', 'full')
+
+# Four-tier refinement: split the fully-observed anchors by demand-drop DEPTH (typical
+# drop = how far below a normal weekday the holiday lands, from the observed_strength
+# diagnostic). Civic patriotic holidays drop ~15% (Independence 14.3%, Juarez 15.4%,
+# Constitution 16.7%); the Dec-Jan winter holidays drop ~30% (Christmas Day 30.8%,
+# New Year's Day 30.2%). Working/partial are unchanged from observance_tier.
+_OBSERVANCE_TIER_DEPTH_BY_ANCHOR = {
+    'labor day': 'working',
+    'mexican revolution day': 'working',
+    'holy saturday': 'partial',
+    'maundy thursday': 'partial',
+    'good friday': 'partial',
+    'christmas eve': 'partial',
+    "new year's eve": 'partial',
+    'constitution day': 'full_civic',     # ~16.7% drop
+    "benito juarez's birthday": 'full_civic',  # ~15.4%
+    'independence day': 'full_civic',     # ~14.3%
+    'christmas day': 'full_deep',         # ~30.8%
+    "new year's day": 'full_deep',        # ~30.2%
+}
+_OBSERVANCE_TIER_DEPTH_ORDER = ('working', 'partial', 'full_civic', 'full_deep')
 
 
 def _normalize_analog_criterion_name(criterion: str) -> str:
@@ -3101,6 +3255,45 @@ def _derive_seasonal_heat_cold_analog_criterion_value(row: pd.Series) -> object:
     if pd.isna(seasonal_value):
         return pd.NA
     return _HEAT_COLD_SEASON_MAP.get(str(seasonal_value).strip().lower(), pd.NA)
+
+
+def _derive_observance_tier_analog_criterion_value(row: pd.Series) -> object:
+    """Map a holiday's anchor name to its observance tier (working/partial/full)."""
+    anchor_value = row.get('anchor_holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        anchor_value = row.get('holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        return pd.NA
+    anchor_text = str(anchor_value).strip().lower()
+    return _OBSERVANCE_TIER_BY_ANCHOR.get(anchor_text, pd.NA)
+
+
+def _derive_observance_tier_depth_analog_criterion_value(row: pd.Series) -> object:
+    """Map a holiday's anchor name to its depth-aware observance tier."""
+    anchor_value = row.get('anchor_holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        anchor_value = row.get('holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        return pd.NA
+    anchor_text = str(anchor_value).strip().lower()
+    return _OBSERVANCE_TIER_DEPTH_BY_ANCHOR.get(anchor_text, pd.NA)
+
+
+def _derive_holiday_identity_analog_criterion_value(row: pd.Series) -> object:
+    """Use the holiday's own anchor name as its analog-cluster group.
+
+    This is the pure ``Similar Days`` hard filter: every distinct holiday
+    (Independence Day, Memorial Day, MLK Day, ...) becomes its own analog
+    cluster, so the downstream selector only ever matches a target against
+    other instances of the *same* holiday. Day-after (H4) rows inherit their
+    anchor, so e.g. Christmas Day H2 and H4 share one cluster.
+    """
+    anchor_value = row.get('anchor_holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        anchor_value = row.get('holiday_name', pd.NA)
+    if pd.isna(anchor_value):
+        return pd.NA
+    return str(anchor_value).strip()
 
 
 def _resolve_analog_criterion_spec(criterion: str) -> dict:
@@ -3138,6 +3331,24 @@ def _resolve_analog_criterion_spec(criterion: str) -> dict:
             'prior_col': None,
             'ordered_values': _SEASONAL_ANALOG_ORDER,
             'value_getter': _derive_seasonal_analog_criterion_value,
+        },
+        'observance_tier': {
+            'selector_col': None,
+            'prior_col': None,
+            'ordered_values': _OBSERVANCE_TIER_ORDER,
+            'value_getter': _derive_observance_tier_analog_criterion_value,
+        },
+        'observance_tier_depth': {
+            'selector_col': None,
+            'prior_col': None,
+            'ordered_values': _OBSERVANCE_TIER_DEPTH_ORDER,
+            'value_getter': _derive_observance_tier_depth_analog_criterion_value,
+        },
+        'holiday_identity': {
+            'selector_col': None,
+            'prior_col': None,
+            # No fixed order: groups are alphabetised by anchor holiday name.
+            'value_getter': _derive_holiday_identity_analog_criterion_value,
         },
     }
 
@@ -3522,5 +3733,3 @@ def get_historical_analog_pool(
         'pool': pool_df,
         'analog_cluster_catalog': analog_cluster_catalog,
     }
-
-
